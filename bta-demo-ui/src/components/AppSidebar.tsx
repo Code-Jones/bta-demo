@@ -1,0 +1,209 @@
+import { useEffect, useState } from 'react'
+
+import { Link } from '@tanstack/react-router'
+
+type SidebarItem = {
+  label: string
+  to: string
+  icon: string
+}
+
+type SidebarUser = {
+  name: string
+  role: string
+  avatarUrl: string
+}
+
+type AppSidebarProps = {
+  brand: string
+  items: SidebarItem[]
+  user: SidebarUser
+  defaultCollapsed?: boolean
+  collapsible?: boolean
+}
+
+export function AppSidebar({
+  brand,
+  items,
+  user,
+  defaultCollapsed = false,
+  collapsible = true,
+}: AppSidebarProps) {
+  const storageKey = 'bta.sidebar.collapsed'
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window === 'undefined') {
+      return defaultCollapsed
+    }
+
+    const stored = window.localStorage.getItem(storageKey)
+    return stored === null ? defaultCollapsed : stored === 'true'
+  })
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(storageKey, String(isCollapsed))
+    }
+  }, [isCollapsed])
+
+  return (
+    <>
+      <aside
+        className={`group/sidebar hidden lg:flex shrink-0 border-r transition-all duration-400 ease-in-out ${
+          isCollapsed ? 'w-20' : 'w-64'
+        } border-r border-slate-200 bg-white text-slate-900`}
+      >
+        <div className="flex flex-col w-full">
+          <div className="p-6 flex items-center gap-3">
+            <div className="w-8 h-8 p-2 rounded-lg bg-primary text-white flex items-center justify-center">
+              <span className="material-icons-outlined text-xl">analytics</span>
+            </div>
+            <span
+              className={`text-xl font-bold tracking-tight transition-all ${
+                isCollapsed ? 'opacity-0 w-0 translate-x-2 pointer-events-none' : 'opacity-100'
+              }`}
+            >
+              {brand}
+            </span>
+            {collapsible ? (
+              <button
+                type="button"
+                className={`btn btn-ghost bg-transparent border-none shadow-none btn-xs ml-auto transition-opacity duration-400 opacity-0 group-hover/sidebar:opacity-100 group-hover/sidebar:pointer-events-auto text-slate-500 hover:text-slate-600`}
+                aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                onClick={() => setIsCollapsed((prev) => !prev)}
+              >
+                <span className="material-symbols-outlined text-lg">
+                  {isCollapsed ? 'chevron_right' : 'chevron_left'}
+                </span>
+              </button>
+            ) : null}
+          </div>
+          <nav className="flex-1 px-4 space-y-1 mt-4">
+            {items.map((item) => (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-slate-600 hover:bg-slate-50 ${
+                  isCollapsed ? 'justify-center' : ''
+                }`}
+                activeProps={{
+                  className: `flex items-center gap-3 px-3 py-2 rounded-lg font-semibold bg-slate-100 text-primary ${
+                    isCollapsed ? 'justify-center' : ''
+                  }`,
+                }}
+                title={item.label}
+              >
+                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+                <span
+                  className={`text-sm transition-all ${
+                    isCollapsed ? 'opacity-0 w-0 translate-x-2 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            ))}
+          </nav>
+          <div className={`p-4 border-t border-slate-200`}>
+            <div className={`flex items-center gap-3 p-2 ${isCollapsed ? 'justify-center' : ''}`}>
+              <img alt={`${user.name} avatar`} className="w-9 h-9 rounded-full object-cover" src={user.avatarUrl} />
+              <div
+                className={`overflow-hidden transition-all ${
+                  isCollapsed ? 'opacity-0 w-0 translate-x-2 pointer-events-none' : 'opacity-100'
+                }`}
+              >
+                <p className="text-xs font-semibold truncate">{user.name}</p>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                  {user.role}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <aside className={`lg:hidden w-16 shrink-0 border-r border-slate-200 bg-white text-slate-900`}>
+        <div className="flex flex-col h-full items-center py-4">
+          <button
+            type="button"
+            className="mb-4 h-10 w-10 rounded-lg bg-primary text-white flex items-center justify-center"
+            aria-label="Open navigation"
+            onClick={() => setIsMobileOpen(true)}
+          >
+            <span className="material-symbols-outlined text-lg">menu</span>
+          </button>
+          <div className="flex-1 flex flex-col items-center gap-3">
+            {items.map((item) => (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`h-10 w-10 rounded-lg flex items-center justify-center transition-colors text-slate-600 hover:bg-slate-50`}
+                activeProps={{
+                  className: `h-10 w-10 rounded-lg flex items-center justify-center bg-slate-100 text-primary`,
+                }}
+                title={item.label}
+              >
+                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {isMobileOpen ? (
+        <button
+          type="button"
+          className="lg:hidden fixed inset-0 z-40 bg-slate-900/40"
+          aria-label="Close navigation"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        className={`lg:hidden fixed inset-y-0 left-0 z-50 w-64 border-r transition-transform duration-200 ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} border-r border-slate-200 bg-white text-slate-900`}
+      >
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 p-2 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
+            <span className="material-icons-outlined text-xl">analytics</span>
+          </div>
+          <span className="text-xl font-bold tracking-tight">{brand}</span>
+          <button
+            type="button"
+            className={`btn btn-ghost bg-transparent border-none shadow-none btn-xs ml-auto text-slate-500`}
+            aria-label="Close navigation"
+            onClick={() => setIsMobileOpen(false)}
+          >
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+        <nav className="flex-1 px-4 space-y-1 mt-4">
+          {items.map((item) => (
+            <Link
+              key={item.label}
+              to={item.to}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-slate-600 hover:bg-slate-50`}
+              activeProps={{
+                className: `flex items-center gap-3 px-3 py-2 rounded-lg font-semibold bg-slate-100 text-primary`,
+              }}
+              onClick={() => setIsMobileOpen(false)}
+            >
+              <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+              <span className="text-sm">{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+        <div className={`p-4 border-t border-slate-200`}>
+          <div className="flex items-center gap-3 p-2">
+            <img alt={`${user.name} avatar`} className="w-9 h-9 rounded-full object-cover" src={user.avatarUrl} />
+            <div className="overflow-hidden">
+              <p className="text-xs font-semibold truncate">{user.name}</p>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                {user.role}
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </>
+  )
+}
