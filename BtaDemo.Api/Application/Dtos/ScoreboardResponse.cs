@@ -1,0 +1,14 @@
+namespace BtaDemo.Api.Application.Dtos;
+
+public record ScoreboardResponse(
+    int Leads,
+    int EstimatesDraft,
+    int EstimatesSent,
+    int EstimatesAccepted,
+    int EstimatesRejected,
+    int JobsScheduled,
+    int InvoicesPaid,
+    int InvoicesUnpaid,
+    int InvoicesOverdue,
+    decimal TotalRevenuePaid
+);
