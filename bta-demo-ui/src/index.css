@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@plugin "daisyui";
+@source "./**/*.{ts,tsx,js,jsx}";
+@source "../templates/**/*.html";
+
+@theme {
+  --color-primary: #137fec;
+  --color-accent: #2563eb;
+  --color-background-light: #f6f7f8;
+  --color-background-dark: #101922;
+  --color-card-white: #ffffff;
+  --color-slate-custom: #64748b;
+  --font-display: "Inter", "sans-serif";
+  --font-mono: "JetBrains Mono", "monospace";
+  --font-serif: "Playfair Display", "serif";
+}
+
+:root {
+  font-family: var(--font-display);
+  --primary-color: var(--color-primary);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-background-light);
+  color: #0f172a;
+}
+
+@layer utilities {
+  .sparkline-svg {
+    height: 30px;
+    width: 100%;
+  }
+
+  .kanban-column {
+    min-width: 280px;
+    flex: 1;
+  }
+
+  .board-container {
+    min-width: 1740px;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #334155;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .text-outline {
+    -webkit-text-stroke: 1px rgba(255, 255, 255, 0.2);
+    color: transparent;
+  }
+
+  .glow-radial {
+    background: radial-gradient(circle at center, rgba(19, 127, 236, 0.15) 0%, transparent 70%);
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .rotate-x-12 {
+    transform: rotateX(12deg);
+  }
+
+  .marquee {
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  }
+
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee-scroll 26s linear infinite;
+  }
+
+  .marquee-item {
+    margin: 0 2rem;
+    flex-shrink: 0;
+  }
+
+  @keyframes marquee-scroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track {
+      animation: none;
+    }
+  }
+}

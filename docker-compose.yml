@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - bta-demo
+    expose:
+      - "${DB_PORT}"
+    ports:
+      # Set DB_PORT=5432 for MODE=DEV; omit in MODE=PROD.
+      - ${DB_PORT}:5432
+
+  api:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    working_dir: /workspace
+    command: [ "dotnet", "run", "--project", "BtaDemo.Api/BtaDemo.Api.csproj" ]
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:${API_PORT}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+      CONNECTIONSTRINGS__DB: ${CONNECTIONSTRINGS__DB}
+      JWT__KEY: ${JWT__KEY}
+      Jwt__Issuer: ${JWT__ISSUER}
+      Jwt__Audience: ${JWT__AUDIENCE}
+    volumes:
+      - ./:/workspace
+    depends_on:
+      - db
+    networks:
+      - bta-demo
+    ports:
+      - ${API_PORT}:${API_PORT}
+
+  ui:
+    image: oven/bun:1.1.30
+    working_dir: /workspace/bta-demo-ui
+    command: [ "sh", "-c", "bun install && bun run dev --host 0.0.0.0 --port ${UI_PORT}" ]
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    volumes:
+      - ./:/workspace
+    depends_on:
+      - api
+    networks:
+      - bta-demo
+    ports:
+      - ${UI_PORT}:${UI_PORT}
+
+volumes:
+  db-data:
+
+
+networks:
+  bta-demo:
+    name: bta-demo
