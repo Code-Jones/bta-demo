@@ -19,28 +19,36 @@ public class JobService
     private readonly JobStateMachine _stateMachine;
     private readonly IStateTransitionEventEmitter _eventEmitter;
     private readonly IWebHostEnvironment _environment;
+    private readonly ICurrentUser _currentUser;
 
     public JobService(
         AppDbContext dbContext,
         JobStateMachine stateMachine,
         IStateTransitionEventEmitter eventEmitter,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        ICurrentUser currentUser)
     {
         _dbContext = dbContext;
         _stateMachine = stateMachine;
         _eventEmitter = eventEmitter;
         _environment = environment;
+        _currentUser = currentUser;
     }
 
     public async Task<Job> CreateAsync(CreateJobRequest req, CancellationToken cancellationToken = default)
     {
-        var lead = await _dbContext.Leads.AnyAsync(x => x.Id == req.LeadId, cancellationToken);
-        if (!lead)
+        var organizationId = GetOrganizationId();
+        var leadExists = await _dbContext.Leads.AnyAsync(
+            x => x.Id == req.LeadId && x.OrganizationId == organizationId,
+            cancellationToken);
+        if (!leadExists)
             throw new NotFoundException("Lead not found");
 
         if (req.EstimateId is not null)
         {
-            var estExists = await _dbContext.Estimates.AnyAsync(x => x.Id == req.EstimateId, cancellationToken);
+            var estExists = await _dbContext.Estimates.AnyAsync(
+                x => x.Id == req.EstimateId && x.OrganizationId == organizationId,
+                cancellationToken);
             if (!estExists)
                 throw new NotFoundException("Estimate not found");
         }
@@ -50,6 +58,7 @@ public class JobService
 
         var job = new Job
         {
+            OrganizationId = organizationId,
             LeadId = req.LeadId,
             EstimateId = req.EstimateId,
             Description = req.Description,
@@ -89,6 +98,7 @@ public class JobService
 
     public async Task<IReadOnlyList<JobListResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var jobs = await _dbContext.Jobs
             .AsNoTracking()
             .Include(x => x.Lead)
@@ -98,6 +108,7 @@ public class JobService
                     .ThenInclude(x => x.TaxLines)
             .Include(x => x.Milestones)
             .Include(x => x.Expenses)
+            .Where(x => x.OrganizationId == organizationId)
             .OrderByDescending(x => x.StartAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -131,13 +142,14 @@ public class JobService
 
     public async Task<JobDetailResponse> GetDetailAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var job = await _dbContext.Jobs
             .AsNoTracking()
             .Include(x => x.Lead)
                 .ThenInclude(x => x.CompanyEntity)
             .Include(x => x.Milestones)
             .Include(x => x.Expenses)
-            .FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == jobId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Job not found");
 
         var milestones = job.Milestones
@@ -200,9 +212,10 @@ public class JobService
 
     public async Task<JobMilestoneResponse> AddMilestoneAsync(Guid jobId, CreateJobMilestoneRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var job = await _dbContext.Jobs
             .Include(x => x.Milestones)
-            .FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == jobId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Job not found");
 
         var title = request.Title?.Trim() ?? "";
@@ -240,8 +253,11 @@ public class JobService
 
     public async Task<JobMilestoneResponse> UpdateMilestoneAsync(Guid jobId, Guid milestoneId, UpdateJobMilestoneRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var milestone = await _dbContext.JobMilestones
-            .FirstOrDefaultAsync(x => x.Id == milestoneId && x.JobId == jobId, cancellationToken)
+            .FirstOrDefaultAsync(
+                x => x.Id == milestoneId && x.JobId == jobId && x.Job != null && x.Job.OrganizationId == organizationId,
+                cancellationToken)
             ?? throw new NotFoundException("Milestone not found");
 
         if (request.Title is not null)
@@ -288,6 +304,10 @@ public class JobService
 
     public async Task DeleteMilestoneAsync(Guid jobId, Guid milestoneId, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
+        var jobExists = await _dbContext.Jobs.AnyAsync(x => x.Id == jobId && x.OrganizationId == organizationId, cancellationToken);
+        if (!jobExists)
+            throw new NotFoundException("Job not found");
         var milestone = await _dbContext.JobMilestones
             .FirstOrDefaultAsync(x => x.Id == milestoneId && x.JobId == jobId, cancellationToken)
             ?? throw new NotFoundException("Milestone not found");
@@ -298,8 +318,11 @@ public class JobService
 
     public async Task<JobExpenseResponse> AddExpenseAsync(Guid jobId, CreateJobExpenseRequest request, CancellationToken cancellationToken = default)
     {
-        var jobExists = await _dbContext.Jobs.AnyAsync(x => x.Id == jobId, cancellationToken);
-        if (!jobExists)
+        var organizationId = GetOrganizationId();
+        var job = await _dbContext.Jobs.FirstOrDefaultAsync(
+            x => x.Id == jobId && x.OrganizationId == organizationId,
+            cancellationToken);
+        if (job is null)
             throw new NotFoundException("Job not found");
 
         var vendor = request.Vendor?.Trim() ?? "";
@@ -313,6 +336,7 @@ public class JobService
 
         var expense = new JobExpense
         {
+            OrganizationId = organizationId,
             JobId = jobId,
             Vendor = vendor,
             Category = string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim(),
@@ -341,8 +365,11 @@ public class JobService
 
     public async Task<JobExpenseResponse> UpdateExpenseAsync(Guid jobId, Guid expenseId, UpdateJobExpenseRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var expense = await _dbContext.JobExpenses
-            .FirstOrDefaultAsync(x => x.Id == expenseId && x.JobId == jobId, cancellationToken)
+            .FirstOrDefaultAsync(
+                x => x.Id == expenseId && x.JobId == jobId && x.OrganizationId == organizationId,
+                cancellationToken)
             ?? throw new NotFoundException("Expense not found");
 
         if (request.Vendor is not null)
@@ -397,8 +424,11 @@ public class JobService
 
     public async Task DeleteExpenseAsync(Guid jobId, Guid expenseId, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var expense = await _dbContext.JobExpenses
-            .FirstOrDefaultAsync(x => x.Id == expenseId && x.JobId == jobId, cancellationToken)
+            .FirstOrDefaultAsync(
+                x => x.Id == expenseId && x.JobId == jobId && x.OrganizationId == organizationId,
+                cancellationToken)
             ?? throw new NotFoundException("Expense not found");
 
         _dbContext.JobExpenses.Remove(expense);
@@ -425,7 +455,10 @@ public class JobService
 
     public async Task<Job> StartAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
-        var job = await _dbContext.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken) ?? throw new NotFoundException("Job not found");
+        var organizationId = GetOrganizationId();
+        var job = await _dbContext.Jobs.FirstOrDefaultAsync(
+            x => x.Id == jobId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Job not found");
 
         var utcNow = DateTime.UtcNow;
         var transition = _stateMachine.Transition(job, JobStatus.InProgress, utcNow);
@@ -442,7 +475,10 @@ public class JobService
 
     public async Task<Job> CompleteAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
-        var job = await _dbContext.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken) ?? throw new NotFoundException("Job not found");
+        var organizationId = GetOrganizationId();
+        var job = await _dbContext.Jobs.FirstOrDefaultAsync(
+            x => x.Id == jobId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Job not found");
 
         var utcNow = DateTime.UtcNow;
         var transition = _stateMachine.Transition(job, JobStatus.Completed, utcNow);
@@ -459,7 +495,10 @@ public class JobService
 
     public async Task<Job> CancelAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
-        var job = await _dbContext.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken) ?? throw new NotFoundException("Job not found");
+        var organizationId = GetOrganizationId();
+        var job = await _dbContext.Jobs.FirstOrDefaultAsync(
+            x => x.Id == jobId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Job not found");
 
         var utcNow = DateTime.UtcNow;
         var transition = _stateMachine.Transition(job, JobStatus.Cancelled, utcNow);
@@ -472,5 +511,16 @@ public class JobService
             transition.OccurredAtUtc),
             cancellationToken);
         return job;
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 }

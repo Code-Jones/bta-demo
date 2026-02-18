@@ -17,26 +17,30 @@ public class EstimateService
     private readonly EstimateStateMachine _estimateStateMachine;
     private readonly LeadStateMachine _leadStateMachine;
     private readonly IStateTransitionEventEmitter _eventEmitter;
+    private readonly ICurrentUser _currentUser;
 
     public EstimateService(
         AppDbContext dbContext,
         EstimateStateMachine estimateStateMachine,
         LeadStateMachine leadStateMachine,
-        IStateTransitionEventEmitter eventEmitter)
+        IStateTransitionEventEmitter eventEmitter,
+        ICurrentUser currentUser)
     {
         _dbContext = dbContext;
         _estimateStateMachine = estimateStateMachine;
         _leadStateMachine = leadStateMachine;
         _eventEmitter = eventEmitter;
+        _currentUser = currentUser;
     }
 
     public async Task<Estimate> CreateAsync(CreateEstimateRequest req, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var lead = await _dbContext.Leads
             .Include(x => x.TaxLines)
             .Include(x => x.CompanyEntity)
                 .ThenInclude(x => x.TaxLines)
-            .FirstOrDefaultAsync(x => x.Id == req.LeadId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == req.LeadId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Lead not found");
         if (lead.IsDeleted)
             throw new ConflictException("Cannot create an estimate for a deleted lead");
@@ -94,6 +98,7 @@ public class EstimateService
 
         var estimate = new Estimate
         {
+            OrganizationId = organizationId,
             LeadId = req.LeadId,
             Description = description,
             CreatedAtUtc = utcNow,
@@ -122,7 +127,10 @@ public class EstimateService
 
     public async Task<Estimate> SendAsync(Guid estimateId, CancellationToken cancellationToken = default)
     {
-        var estimate = await _dbContext.Estimates.FirstOrDefaultAsync(x => x.Id == estimateId, cancellationToken) ?? throw new NotFoundException("Estimate not found");
+        var organizationId = GetOrganizationId();
+        var estimate = await _dbContext.Estimates.FirstOrDefaultAsync(
+            x => x.Id == estimateId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Estimate not found");
 
         // later add sending email logic here 
         var utcNow = DateTime.UtcNow;
@@ -140,15 +148,18 @@ public class EstimateService
 
     public async Task<Estimate> AcceptAsync(Guid estimateId, AcceptEstimateRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
 
         // transaction because later we will create a job and invoice
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var estimate = await _dbContext.Estimates
             .Include(x => x.LineItems)
-            .FirstOrDefaultAsync(x => x.Id == estimateId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == estimateId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Estimate not found");
-        var leadExists = await _dbContext.Leads.AnyAsync(x => x.Id == estimate.LeadId, cancellationToken);
+        var leadExists = await _dbContext.Leads.AnyAsync(
+            x => x.Id == estimate.LeadId && x.OrganizationId == organizationId,
+            cancellationToken);
         if (!leadExists)
             throw new NotFoundException("Lead not found");
         var utcNow = DateTime.UtcNow;
@@ -161,6 +172,7 @@ public class EstimateService
 
         var job = new Job
         {
+            OrganizationId = organizationId,
             LeadId = estimate.LeadId,
             EstimateId = estimate.Id,
             Description = estimate.Description,
@@ -191,6 +203,7 @@ public class EstimateService
 
         var invoice = new Invoice
         {
+            OrganizationId = organizationId,
             JobId = job.Id,
             Amount = totals.Total,
             LineItems = lineItems
@@ -244,7 +257,10 @@ public class EstimateService
     
     public async Task<Estimate> RejectAsync(Guid estimateId, CancellationToken cancellationToken = default)
     {
-        var estimate = await _dbContext.Estimates.FirstOrDefaultAsync(x => x.Id == estimateId, cancellationToken) ?? throw new NotFoundException("Estimate not found");
+        var organizationId = GetOrganizationId();
+        var estimate = await _dbContext.Estimates.FirstOrDefaultAsync(
+            x => x.Id == estimateId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Estimate not found");
 
         var utcNow = DateTime.UtcNow;
         var transition = _estimateStateMachine.Transition(estimate, EstimateStatus.Rejected, utcNow);
@@ -261,11 +277,13 @@ public class EstimateService
 
     public async Task<IReadOnlyList<EstimateListResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var estimates = await _dbContext.Estimates
             .AsNoTracking()
             .Include(x => x.LineItems)
             .Include(x => x.Lead)
                 .ThenInclude(x => x.CompanyEntity)
+            .Where(x => x.OrganizationId == organizationId)
             .OrderByDescending(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -274,11 +292,12 @@ public class EstimateService
 
     public async Task<Estimate> UpdateAsync(Guid estimateId, UpdateEstimateRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var estimate = await _dbContext.Estimates
             .Include(x => x.LineItems)
-            .FirstOrDefaultAsync(x => x.Id == estimateId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == estimateId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Estimate not found");
 
         if (estimate.Status != EstimateStatus.Draft)
@@ -373,6 +392,17 @@ public class EstimateService
             estimate.RejectedAtUtc,
             lineItemResponses
         );
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 
 }

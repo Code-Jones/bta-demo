@@ -16,19 +16,23 @@ public class LeadService
     private readonly AppDbContext _dbContext;
     private readonly LeadStateMachine _stateMachine;
     private readonly IStateTransitionEventEmitter _eventEmitter;
+    private readonly ICurrentUser _currentUser;
 
     public LeadService(
         AppDbContext dbContext,
         LeadStateMachine stateMachine,
-        IStateTransitionEventEmitter eventEmitter)
+        IStateTransitionEventEmitter eventEmitter,
+        ICurrentUser currentUser)
     {
         _dbContext = dbContext;
         _stateMachine = stateMachine;
         _eventEmitter = eventEmitter;
+        _currentUser = currentUser;
     }
 
     public async Task<Lead> CreateAsync(CreateLeadRequest req, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         if (string.IsNullOrWhiteSpace(req.Name))
             throw new ValidationException("Name is required");
 
@@ -39,7 +43,9 @@ public class LeadService
         Company? companyEntity = null;
         if (req.CompanyId is not null)
         {
-            companyEntity = await _dbContext.Companies.FirstOrDefaultAsync(x => x.Id == req.CompanyId, cancellationToken)
+            companyEntity = await _dbContext.Companies.FirstOrDefaultAsync(
+                x => x.Id == req.CompanyId && x.OrganizationId == organizationId,
+                cancellationToken)
                 ?? throw new NotFoundException("Company not found");
             if (companyEntity.IsDeleted)
                 throw new ConflictException("Company is deleted");
@@ -48,10 +54,18 @@ public class LeadService
         {
             var normalizedName = req.Company.Trim();
             companyEntity = await _dbContext.Companies
-                .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Name, normalizedName), cancellationToken);
+                .FirstOrDefaultAsync(
+                    x => x.OrganizationId == organizationId && EF.Functions.ILike(x.Name, normalizedName),
+                    cancellationToken);
             if (companyEntity is null || companyEntity.IsDeleted)
             {
-                companyEntity = new Company { Name = normalizedName, CreatedAtUtc = utcNow, UpdatedAtUtc = utcNow };
+                companyEntity = new Company
+                {
+                    Name = normalizedName,
+                    OrganizationId = organizationId,
+                    CreatedAtUtc = utcNow,
+                    UpdatedAtUtc = utcNow
+                };
                 _dbContext.Companies.Add(companyEntity);
             }
         }
@@ -59,6 +73,7 @@ public class LeadService
         var lead = new Lead
         {
             Name = req.Name.Trim(),
+            OrganizationId = organizationId,
             Company = companyEntity?.Name ?? req.Company?.Trim(),
             CompanyId = companyEntity?.Id,
             Phone = req.Phone?.Trim(),
@@ -88,7 +103,8 @@ public class LeadService
 
     public async Task<IReadOnlyList<LeadResponse>> GetAllAsync(bool includeDeleted, CancellationToken cancellationToken = default)
     {
-        var leadsQuery = _dbContext.Leads.AsNoTracking().AsQueryable();
+        var organizationId = GetOrganizationId();
+        var leadsQuery = _dbContext.Leads.AsNoTracking().Where(x => x.OrganizationId == organizationId).AsQueryable();
         if (!includeDeleted)
         {
             leadsQuery = leadsQuery.Where(x => !x.IsDeleted);
@@ -115,10 +131,11 @@ public class LeadService
 
     public async Task<LeadDetailResponse> GetByIdAsync(Guid leadId, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var lead = await _dbContext.Leads
             .AsNoTracking()
             .Include(x => x.TaxLines)
-            .Where(x => x.Id == leadId)
+            .Where(x => x.Id == leadId && x.OrganizationId == organizationId)
             .Select(x => new LeadDetailResponse(
                 x.Id,
                 x.Name,
@@ -150,9 +167,10 @@ public class LeadService
 
     public async Task<Lead> UpdateAsync(Guid leadId, UpdateLeadRequest req, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var lead = await _dbContext.Leads
             .Include(x => x.TaxLines)
-            .FirstOrDefaultAsync(x => x.Id == leadId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == leadId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Lead not found");
 
         if (lead.IsDeleted)
@@ -165,7 +183,9 @@ public class LeadService
         Company? companyEntity = null;
         if (req.CompanyId is not null)
         {
-            companyEntity = await _dbContext.Companies.FirstOrDefaultAsync(x => x.Id == req.CompanyId, cancellationToken)
+            companyEntity = await _dbContext.Companies.FirstOrDefaultAsync(
+                x => x.Id == req.CompanyId && x.OrganizationId == organizationId,
+                cancellationToken)
                 ?? throw new NotFoundException("Company not found");
             if (companyEntity.IsDeleted)
                 throw new ConflictException("Company is deleted");
@@ -176,10 +196,18 @@ public class LeadService
             if (!string.IsNullOrWhiteSpace(normalizedName))
             {
                 companyEntity = await _dbContext.Companies
-                    .FirstOrDefaultAsync(x => EF.Functions.ILike(x.Name, normalizedName), cancellationToken);
+                    .FirstOrDefaultAsync(
+                        x => x.OrganizationId == organizationId && EF.Functions.ILike(x.Name, normalizedName),
+                        cancellationToken);
                 if (companyEntity is null || companyEntity.IsDeleted)
                 {
-                    companyEntity = new Company { Name = normalizedName, CreatedAtUtc = utcNow, UpdatedAtUtc = utcNow };
+                    companyEntity = new Company
+                    {
+                        Name = normalizedName,
+                        OrganizationId = organizationId,
+                        CreatedAtUtc = utcNow,
+                        UpdatedAtUtc = utcNow
+                    };
                     _dbContext.Companies.Add(companyEntity);
                 }
             }
@@ -224,7 +252,10 @@ public class LeadService
 
     public async Task<Lead> UpdateStatusAsync(Guid leadId, SetLeadStatusRequest req, CancellationToken cancellationToken = default)
     {
-        var lead = await _dbContext.Leads.FirstOrDefaultAsync(x => x.Id == leadId, cancellationToken)
+        var organizationId = GetOrganizationId();
+        var lead = await _dbContext.Leads.FirstOrDefaultAsync(
+            x => x.Id == leadId && x.OrganizationId == organizationId,
+            cancellationToken)
             ?? throw new NotFoundException("Lead not found");
 
         if (lead.IsDeleted)
@@ -258,7 +289,10 @@ public class LeadService
 
     public async Task<Lead> DeleteAsync(Guid leadId, CancellationToken cancellationToken = default)
     {
-        var lead = await _dbContext.Leads.FirstOrDefaultAsync(x => x.Id == leadId, cancellationToken)
+        var organizationId = GetOrganizationId();
+        var lead = await _dbContext.Leads.FirstOrDefaultAsync(
+            x => x.Id == leadId && x.OrganizationId == organizationId,
+            cancellationToken)
             ?? throw new NotFoundException("Lead not found");
 
         if (lead.IsDeleted)
@@ -275,12 +309,13 @@ public class LeadService
 
     public async Task<LeadMetricsResponse> GetMetricsAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
         var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var lastMonthStart = monthStart.AddMonths(-1);
         var lastMonthEnd = monthStart.AddTicks(-1);
 
-        var leadsQuery = _dbContext.Leads.Where(x => !x.IsDeleted);
+        var leadsQuery = _dbContext.Leads.Where(x => x.OrganizationId == organizationId && !x.IsDeleted);
         var totalLeads = await leadsQuery.CountAsync(cancellationToken);
         var newLeadsThisMonth = await leadsQuery.CountAsync(x => x.CreatedAtUtc >= monthStart, cancellationToken);
         var newLeadsLastMonth = await leadsQuery.CountAsync(
@@ -288,23 +323,26 @@ public class LeadService
             cancellationToken);
 
         var leadsWithSentEstimatesThisMonth = await _dbContext.Estimates
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.SentAtUtc != null && x.SentAtUtc >= monthStart)
             .Select(x => x.LeadId)
             .Distinct()
-            .Join(_dbContext.Leads.Where(x => !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
+            .Join(_dbContext.Leads.Where(x => x.OrganizationId == organizationId && !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
             .CountAsync(cancellationToken);
 
         var leadsWithSentEstimatesLastMonth = await _dbContext.Estimates
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.SentAtUtc != null && x.SentAtUtc >= lastMonthStart && x.SentAtUtc <= lastMonthEnd)
             .Select(x => x.LeadId)
             .Distinct()
-            .Join(_dbContext.Leads.Where(x => !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
+            .Join(_dbContext.Leads.Where(x => x.OrganizationId == organizationId && !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
             .CountAsync(cancellationToken);
 
         var leadsWithJobs = await _dbContext.Jobs
+            .Where(x => x.OrganizationId == organizationId)
             .Select(x => x.LeadId)
             .Distinct()
-            .Join(_dbContext.Leads.Where(x => !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
+            .Join(_dbContext.Leads.Where(x => x.OrganizationId == organizationId && !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
             .CountAsync(cancellationToken);
 
         var conversionRate = totalLeads == 0 ? 0 : (decimal)leadsWithJobs / totalLeads;
@@ -313,10 +351,10 @@ public class LeadService
             x => x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd,
             cancellationToken);
         var jobsCreatedLastMonth = await _dbContext.Jobs
-            .Where(x => x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd)
+            .Where(x => x.OrganizationId == organizationId && x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd)
             .Select(x => x.LeadId)
             .Distinct()
-            .Join(_dbContext.Leads.Where(x => !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
+            .Join(_dbContext.Leads.Where(x => x.OrganizationId == organizationId && !x.IsDeleted), id => id, lead => lead.Id, (id, lead) => id)
             .CountAsync(cancellationToken);
 
         var conversionRateLastMonth = leadsCreatedLastMonth == 0 ? 0 : (decimal)jobsCreatedLastMonth / leadsCreatedLastMonth;
@@ -331,6 +369,17 @@ public class LeadService
             conversionRate,
             conversionRateLastMonth
         );
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 
 }

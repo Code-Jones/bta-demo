@@ -47,5 +47,9 @@ export const queryKeys = {
     register: () => [...queryKeys.auth.all, 'register'] as const,
     logout: () => [...queryKeys.auth.all, 'logout'] as const,
     forgotPassword: () => [...queryKeys.auth.all, 'forgotPassword'] as const,
-  }
+  },
+  organizationUsers: {
+    all: ['organizationUsers'] as const,
+    list: () => [...queryKeys.organizationUsers.all, 'list'] as const,
+  },
 }

@@ -8,20 +8,27 @@ namespace BtaDemo.Api.Application.Services;
 public class PipelineService
 {
     private readonly AppDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
     private const int DefaultItemLimit = 6;
 
-    public PipelineService(AppDbContext dbContext) => _dbContext = dbContext;
+    public PipelineService(AppDbContext dbContext, ICurrentUser currentUser)
+    {
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
 
     public async Task<PipelineBoardResponse> GetBoardAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
 
         var leadIdsWithEstimates = _dbContext.Estimates
+            .Where(x => x.OrganizationId == organizationId)
             .Select(e => e.LeadId)
             .Distinct();
 
         var leadsWithoutEstimates = _dbContext.Leads
-            .Where(x => !x.IsDeleted && !leadIdsWithEstimates.Contains(x.Id));
+            .Where(x => x.OrganizationId == organizationId && !x.IsDeleted && !leadIdsWithEstimates.Contains(x.Id));
 
         var leadsQuery = leadsWithoutEstimates
             .Where(x => x.Status == LeadStatus.New)
@@ -52,7 +59,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var draftEstimatesQuery = _dbContext.Estimates
-            .Where(x => x.Status == EstimateStatus.Draft)
+            .Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Draft)
             .OrderByDescending(x => x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -66,7 +73,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var sentEstimatesQuery = _dbContext.Estimates
-            .Where(x => x.Status == EstimateStatus.Sent)
+            .Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Sent)
             .OrderByDescending(x => x.SentAtUtc ?? x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -80,7 +87,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var acceptedEstimatesQuery = _dbContext.Estimates
-            .Where(x => x.Status == EstimateStatus.Accepted)
+            .Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Accepted)
             .OrderByDescending(x => x.AcceptedAtUtc ?? x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -94,7 +101,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var rejectedEstimatesQuery = _dbContext.Estimates
-            .Where(x => x.Status == EstimateStatus.Rejected)
+            .Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Rejected)
             .OrderByDescending(x => x.RejectedAtUtc ?? x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -108,7 +115,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var scheduledJobsQuery = _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.Scheduled)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.Scheduled)
             .OrderBy(x => x.StartAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -122,7 +129,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var inProgressJobsQuery = _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.InProgress)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.InProgress)
             .OrderByDescending(x => x.StartedAtUtc ?? x.StartAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -136,7 +143,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var completedJobsQuery = _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.Completed)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.Completed)
             .OrderByDescending(x => x.CompletedAtUtc ?? x.UpdatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -150,7 +157,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var draftInvoicesQuery = _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Draft)
+            .Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft)
             .OrderByDescending(x => x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -164,7 +171,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var issuedInvoicesQuery = _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow))
+            .Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow))
             .OrderByDescending(x => x.IssuedAtUtc ?? x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -178,7 +185,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var overdueInvoicesQuery = _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow))
+            .Where(x => x.OrganizationId == organizationId && (x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow)))
             .OrderByDescending(x => x.DueAtUtc ?? x.IssuedAtUtc ?? x.CreatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -192,7 +199,7 @@ public class PipelineService
             .Take(DefaultItemLimit);
 
         var paidInvoicesQuery = _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Paid)
+            .Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Paid)
             .OrderByDescending(x => x.PaidAtUtc ?? x.UpdatedAtUtc)
             .Select(x => new PipelineItemResponse(
                 x.Id,
@@ -207,49 +214,49 @@ public class PipelineService
 
         var leadsCount = await leadsWithoutEstimates.CountAsync(x => x.Status == LeadStatus.New, cancellationToken);
         var leadsLostCount = await leadsWithoutEstimates.CountAsync(x => x.Status == LeadStatus.Lost, cancellationToken);
-        var draftCount = await _dbContext.Estimates.CountAsync(x => x.Status == EstimateStatus.Draft, cancellationToken);
-        var sentCount = await _dbContext.Estimates.CountAsync(x => x.Status == EstimateStatus.Sent, cancellationToken);
-        var acceptedCount = await _dbContext.Estimates.CountAsync(x => x.Status == EstimateStatus.Accepted, cancellationToken);
-        var rejectedCount = await _dbContext.Estimates.CountAsync(x => x.Status == EstimateStatus.Rejected, cancellationToken);
-        var scheduledCount = await _dbContext.Jobs.CountAsync(x => x.Status == JobStatus.Scheduled, cancellationToken);
-        var inProgressCount = await _dbContext.Jobs.CountAsync(x => x.Status == JobStatus.InProgress, cancellationToken);
-        var completedCount = await _dbContext.Jobs.CountAsync(x => x.Status == JobStatus.Completed, cancellationToken);
-        var draftInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.Status == InvoiceStatus.Draft, cancellationToken);
-        var issuedInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow), cancellationToken);
-        var overdueInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow), cancellationToken);
-        var paidInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.Status == InvoiceStatus.Paid, cancellationToken);
+        var draftCount = await _dbContext.Estimates.CountAsync(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Draft, cancellationToken);
+        var sentCount = await _dbContext.Estimates.CountAsync(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Sent, cancellationToken);
+        var acceptedCount = await _dbContext.Estimates.CountAsync(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Accepted, cancellationToken);
+        var rejectedCount = await _dbContext.Estimates.CountAsync(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Rejected, cancellationToken);
+        var scheduledCount = await _dbContext.Jobs.CountAsync(x => x.OrganizationId == organizationId && x.Status == JobStatus.Scheduled, cancellationToken);
+        var inProgressCount = await _dbContext.Jobs.CountAsync(x => x.OrganizationId == organizationId && x.Status == JobStatus.InProgress, cancellationToken);
+        var completedCount = await _dbContext.Jobs.CountAsync(x => x.OrganizationId == organizationId && x.Status == JobStatus.Completed, cancellationToken);
+        var draftInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft, cancellationToken);
+        var issuedInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow), cancellationToken);
+        var overdueInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.OrganizationId == organizationId && (x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow)), cancellationToken);
+        var paidInvoiceCount = await _dbContext.Invoices.CountAsync(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Paid, cancellationToken);
 
         var leadsTotal = await leadsWithoutEstimates.Where(x => x.Status == LeadStatus.New)
             .SumAsync(x => (decimal?)x.EstimatedValue, cancellationToken);
         var leadsLostTotal = await leadsWithoutEstimates.Where(x => x.Status == LeadStatus.Lost)
             .SumAsync(x => (decimal?)x.EstimatedValue, cancellationToken);
-        var draftTotal = await _dbContext.Estimates.Where(x => x.Status == EstimateStatus.Draft)
+        var draftTotal = await _dbContext.Estimates.Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Draft)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var sentTotal = await _dbContext.Estimates.Where(x => x.Status == EstimateStatus.Sent)
+        var sentTotal = await _dbContext.Estimates.Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Sent)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var acceptedTotal = await _dbContext.Estimates.Where(x => x.Status == EstimateStatus.Accepted)
+        var acceptedTotal = await _dbContext.Estimates.Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Accepted)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var rejectedTotal = await _dbContext.Estimates.Where(x => x.Status == EstimateStatus.Rejected)
+        var rejectedTotal = await _dbContext.Estimates.Where(x => x.OrganizationId == organizationId && x.Status == EstimateStatus.Rejected)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
         var scheduledTotal = await _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.Scheduled)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.Scheduled)
             .Select(x => x.Estimate != null ? (decimal?)x.Estimate.Amount : null)
             .SumAsync(cancellationToken);
         var inProgressTotal = await _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.InProgress)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.InProgress)
             .Select(x => x.Estimate != null ? (decimal?)x.Estimate.Amount : null)
             .SumAsync(cancellationToken);
         var completedTotal = await _dbContext.Jobs
-            .Where(x => x.Status == JobStatus.Completed)
+            .Where(x => x.OrganizationId == organizationId && x.Status == JobStatus.Completed)
             .Select(x => x.Estimate != null ? (decimal?)x.Estimate.Amount : null)
             .SumAsync(cancellationToken);
-        var draftInvoiceTotal = await _dbContext.Invoices.Where(x => x.Status == InvoiceStatus.Draft)
+        var draftInvoiceTotal = await _dbContext.Invoices.Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var issuedInvoiceTotal = await _dbContext.Invoices.Where(x => x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow))
+        var issuedInvoiceTotal = await _dbContext.Invoices.Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Issued && (x.DueAtUtc == null || x.DueAtUtc >= utcNow))
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var overdueInvoiceTotal = await _dbContext.Invoices.Where(x => x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow))
+        var overdueInvoiceTotal = await _dbContext.Invoices.Where(x => x.OrganizationId == organizationId && (x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow)))
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
-        var paidInvoiceTotal = await _dbContext.Invoices.Where(x => x.Status == InvoiceStatus.Paid)
+        var paidInvoiceTotal = await _dbContext.Invoices.Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Paid)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken);
 
         var columns = new List<PipelineColumnResponse>
@@ -352,5 +359,16 @@ public class PipelineService
             + (acceptedTotal ?? 0);
 
         return new PipelineBoardResponse(columns, pipelineTotal);
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 }

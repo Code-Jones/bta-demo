@@ -30,16 +30,38 @@ using var scope = provider.CreateScope();
 var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-await EnsureDemoUserAsync(userManager);
-await SeedAsync(dbContext, DateTime.UtcNow);
+var organization = await EnsureDemoOrganizationAsync(dbContext, DateTime.UtcNow);
+await EnsureDemoUserAsync(userManager, organization);
+await SeedAsync(dbContext, DateTime.UtcNow, organization.Id);
 
-static async Task EnsureDemoUserAsync(UserManager<ApplicationUser> userManager)
+static async Task<Organization> EnsureDemoOrganizationAsync(AppDbContext dbContext, DateTime utcNow)
+{
+    var name = GetEnv("DEMO_ORG_NAME", GetEnv("DEMO_USER_COMPANY", "BrightBuild"));
+    var existing = await dbContext.Organizations.FirstOrDefaultAsync(x => x.Name == name);
+    if (existing is not null)
+    {
+        existing.UpdatedAtUtc = utcNow;
+        await dbContext.SaveChangesAsync();
+        return existing;
+    }
+
+    var organization = new Organization
+    {
+        Name = name,
+        CreatedAtUtc = utcNow,
+        UpdatedAtUtc = utcNow
+    };
+    dbContext.Organizations.Add(organization);
+    await dbContext.SaveChangesAsync();
+    return organization;
+}
+
+static async Task EnsureDemoUserAsync(UserManager<ApplicationUser> userManager, Organization organization)
 {
     var email = GetEnv("DEMO_USER_EMAIL", "demo@bta.local");
     var password = GetEnv("DEMO_USER_PASSWORD", "Demo1234");
     var firstName = GetEnv("DEMO_USER_FIRSTNAME", "Demo");
     var lastName = GetEnv("DEMO_USER_LASTNAME", "User");
-    var company = GetEnv("DEMO_USER_COMPANY", "BrightBuild");
 
     var existing = await userManager.FindByEmailAsync(email);
     if (existing is null)
@@ -50,7 +72,8 @@ static async Task EnsureDemoUserAsync(UserManager<ApplicationUser> userManager)
             Email = email,
             FirstName = firstName,
             LastName = lastName,
-            Company = company
+            OrganizationId = organization.Id,
+            IsCompanyAdmin = true
         };
 
         var result = await userManager.CreateAsync(user, password);
@@ -66,7 +89,8 @@ static async Task EnsureDemoUserAsync(UserManager<ApplicationUser> userManager)
 
     existing.FirstName = firstName;
     existing.LastName = lastName;
-    existing.Company = company;
+    existing.OrganizationId = organization.Id;
+    existing.IsCompanyAdmin = true;
     existing.UserName = email;
     existing.Email = email;
 
@@ -88,7 +112,7 @@ static async Task EnsureDemoUserAsync(UserManager<ApplicationUser> userManager)
     Console.WriteLine($"Updated demo user {email}");
 }
 
-static async Task SeedAsync(AppDbContext dbContext, DateTime utcNow)
+static async Task SeedAsync(AppDbContext dbContext, DateTime utcNow, Guid organizationId)
 {
     var hasData = await dbContext.Leads.AnyAsync()
         || await dbContext.Companies.AnyAsync()
@@ -100,11 +124,11 @@ static async Task SeedAsync(AppDbContext dbContext, DateTime utcNow)
         Console.WriteLine("Database already contains data; seed will append.");
     }
 
-    var companies = BuildCompanies(utcNow);
-    var leads = BuildLeads(utcNow, companies);
-    var estimates = BuildEstimates(utcNow, leads);
-    var jobs = BuildJobs(utcNow, leads, estimates);
-    var invoices = BuildInvoices(utcNow, jobs);
+    var companies = BuildCompanies(utcNow, organizationId);
+    var leads = BuildLeads(utcNow, companies, organizationId);
+    var estimates = BuildEstimates(utcNow, leads, organizationId);
+    var jobs = BuildJobs(utcNow, leads, estimates, organizationId);
+    var invoices = BuildInvoices(utcNow, jobs, organizationId);
 
     dbContext.Companies.AddRange(companies);
     dbContext.Leads.AddRange(leads);
@@ -121,13 +145,14 @@ static async Task SeedAsync(AppDbContext dbContext, DateTime utcNow)
     Console.WriteLine($"Seeded {invoices.Count} invoices");
 }
 
-static List<Company> BuildCompanies(DateTime utcNow)
+static List<Company> BuildCompanies(DateTime utcNow, Guid organizationId)
 {
     var companies = new List<Company>
     {
         new()
         {
             Name = "Northwind Roofing",
+            OrganizationId = organizationId,
             Phone = "555-0101",
             Email = "ops@northwindroofing.com",
             Website = "https://northwindroofing.example",
@@ -144,6 +169,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
         new()
         {
             Name = "Blue Oak Builders",
+            OrganizationId = organizationId,
             Phone = "555-0199",
             Email = "hello@blueoakbuilders.com",
             Website = "https://blueoak.example",
@@ -160,6 +186,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
         new()
         {
             Name = "Summit Solar",
+            OrganizationId = organizationId,
             Phone = "555-0177",
             Email = "install@summitsolar.com",
             Website = "https://summitsolar.example",
@@ -176,6 +203,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
         new()
         {
             Name = "Maple & Stone Renovations",
+            OrganizationId = organizationId,
             Phone = "555-0138",
             Email = "projects@maplestone.com",
             Website = "https://maplestone.example",
@@ -192,6 +220,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
         new()
         {
             Name = "Harborview Property Group",
+            OrganizationId = organizationId,
             Phone = "555-0144",
             Email = "admin@harborviewpg.com",
             Website = "https://harborviewpg.example",
@@ -208,6 +237,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
         new()
         {
             Name = "Atlas HVAC",
+            OrganizationId = organizationId,
             Phone = "555-0166",
             Email = "dispatch@atlashvac.com",
             Website = "https://atlashvac.example",
@@ -238,7 +268,7 @@ static List<Company> BuildCompanies(DateTime utcNow)
     return companies;
 }
 
-static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
+static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies, Guid organizationId)
 {
     Company CompanyByName(string name) => companies.First(x => x.Name == name);
 
@@ -254,6 +284,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Ava Thompson",
+            OrganizationId = organizationId,
             Company = blueOak.Name,
             CompanyId = blueOak.Id,
             CompanyEntity = blueOak,
@@ -275,6 +306,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Marcus Lee",
+            OrganizationId = organizationId,
             Company = "Lee & Sons",
             Phone = "555-1002",
             Email = "marcus.lee@example.com",
@@ -294,6 +326,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Sofia Ramirez",
+            OrganizationId = organizationId,
             Phone = "555-1003",
             Email = "sofia.ramirez@example.com",
             AddressLine1 = "903 Canyon Rd",
@@ -312,6 +345,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Harper Chen",
+            OrganizationId = organizationId,
             Company = harborview.Name,
             CompanyId = harborview.Id,
             CompanyEntity = harborview,
@@ -334,6 +368,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Jamal Ortiz",
+            OrganizationId = organizationId,
             Company = atlas.Name,
             CompanyId = atlas.Id,
             CompanyEntity = atlas,
@@ -356,6 +391,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Priya Patel",
+            OrganizationId = organizationId,
             Company = northwind.Name,
             CompanyId = northwind.Id,
             CompanyEntity = northwind,
@@ -377,6 +413,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Ethan Brooks",
+            OrganizationId = organizationId,
             Company = maple.Name,
             CompanyId = maple.Id,
             CompanyEntity = maple,
@@ -398,6 +435,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Lila Nguyen",
+            OrganizationId = organizationId,
             Company = summit.Name,
             CompanyId = summit.Id,
             CompanyEntity = summit,
@@ -419,6 +457,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Noah King",
+            OrganizationId = organizationId,
             Company = blueOak.Name,
             CompanyId = blueOak.Id,
             CompanyEntity = blueOak,
@@ -440,6 +479,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Mia Johnson",
+            OrganizationId = organizationId,
             Company = harborview.Name,
             CompanyId = harborview.Id,
             CompanyEntity = harborview,
@@ -461,6 +501,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Jordan Wells",
+            OrganizationId = organizationId,
             Company = "Crescent Estates",
             Phone = "555-1011",
             Email = "jordan.wells@example.com",
@@ -480,6 +521,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Riley Park",
+            OrganizationId = organizationId,
             Phone = "555-1012",
             Email = "riley.park@example.com",
             AddressLine1 = "902 Elm St",
@@ -498,6 +540,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Casey Brooks",
+            OrganizationId = organizationId,
             Company = northwind.Name,
             CompanyId = northwind.Id,
             CompanyEntity = northwind,
@@ -519,6 +562,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Taylor Reed",
+            OrganizationId = organizationId,
             Company = summit.Name,
             CompanyId = summit.Id,
             CompanyEntity = summit,
@@ -540,6 +584,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
         new()
         {
             Name = "Morgan Ellis",
+            OrganizationId = organizationId,
             Company = maple.Name,
             CompanyId = maple.Id,
             CompanyEntity = maple,
@@ -571,7 +616,7 @@ static List<Lead> BuildLeads(DateTime utcNow, IReadOnlyList<Company> companies)
     return leads;
 }
 
-static List<Estimate> BuildEstimates(DateTime utcNow, IReadOnlyList<Lead> leads)
+static List<Estimate> BuildEstimates(DateTime utcNow, IReadOnlyList<Lead> leads, Guid organizationId)
 {
     Lead LeadByName(string name) => leads.First(x => x.Name == name);
 
@@ -706,7 +751,7 @@ static List<Estimate> BuildEstimates(DateTime utcNow, IReadOnlyList<Lead> leads)
     return estimates;
 }
 
-static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnlyList<Estimate> estimates)
+static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnlyList<Estimate> estimates, Guid organizationId)
 {
     Estimate EstimateByLead(string leadName) => estimates.First(x => x.Lead?.Name == leadName);
     Lead LeadByName(string name) => leads.First(x => x.Name == name);
@@ -721,6 +766,7 @@ static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnly
             utcNow.AddDays(3),
             utcNow.AddDays(12),
             JobStatus.Scheduled,
+            organizationId,
             milestones: new (string Title, MilestoneStatus Status, int OffsetDays, string? Notes)[]
             {
                 ("Keys pickup", MilestoneStatus.Pending, 0, "Coordinate with leasing office"),
@@ -739,6 +785,7 @@ static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnly
             utcNow.AddDays(-6),
             utcNow.AddDays(6),
             JobStatus.InProgress,
+            organizationId,
             milestones: new (string Title, MilestoneStatus Status, int OffsetDays, string? Notes)[]
             {
                 ("Pressure wash", MilestoneStatus.Completed, -6, null),
@@ -758,6 +805,7 @@ static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnly
             utcNow.AddDays(-12),
             utcNow.AddDays(-2),
             JobStatus.Completed,
+            organizationId,
             milestones: new (string Title, MilestoneStatus Status, int OffsetDays, string? Notes)[]
             {
                 ("Delivery", MilestoneStatus.Completed, -12, "Windows delivered"),
@@ -777,6 +825,7 @@ static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnly
             utcNow.AddDays(-10),
             utcNow.AddDays(4),
             JobStatus.Cancelled,
+            organizationId,
             milestones: new (string Title, MilestoneStatus Status, int OffsetDays, string? Notes)[]
             {
                 ("Site inspection", MilestoneStatus.Completed, -10, null),
@@ -792,7 +841,7 @@ static List<Job> BuildJobs(DateTime utcNow, IReadOnlyList<Lead> leads, IReadOnly
     return jobs;
 }
 
-static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs)
+static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs, Guid organizationId)
 {
     Job JobByLead(string leadName) => jobs.First(x => x.Lead?.Name == leadName);
 
@@ -803,6 +852,7 @@ static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs)
             "Deposit due before start",
             utcNow.AddDays(-5),
             InvoiceStatus.Draft,
+            organizationId,
             new (string Description, decimal Quantity, decimal UnitPrice)[]
             {
                 ("Paint", 1m, 2500m),
@@ -814,6 +864,7 @@ static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs)
             "Progress billing",
             utcNow.AddDays(-6),
             InvoiceStatus.Issued,
+            organizationId,
             new (string Description, decimal Quantity, decimal UnitPrice)[]
             {
                 ("Prep work", 1m, 2400m),
@@ -827,6 +878,7 @@ static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs)
             "Final invoice",
             utcNow.AddDays(-12),
             InvoiceStatus.Paid,
+            organizationId,
             new (string Description, decimal Quantity, decimal UnitPrice)[]
             {
                 ("Window units", 12m, 550m),
@@ -841,6 +893,7 @@ static List<Invoice> BuildInvoices(DateTime utcNow, IReadOnlyList<Job> jobs)
             "Materials hold",
             utcNow.AddDays(-9),
             InvoiceStatus.Overdue,
+            organizationId,
             new (string Description, decimal Quantity, decimal UnitPrice)[]
             {
                 ("Gutter material", 1m, 1800m),
@@ -866,6 +919,7 @@ static Estimate BuildEstimate(
 {
     var estimate = new Estimate
     {
+        OrganizationId = lead.OrganizationId,
         LeadId = lead.Id,
         Lead = lead,
         Description = description,
@@ -905,6 +959,7 @@ static Job BuildJob(
     DateTime startAtUtc,
     DateTime estimatedEndAtUtc,
     JobStatus status,
+    Guid organizationId,
     IReadOnlyList<(string Title, MilestoneStatus Status, int OffsetDays, string? Notes)> milestones,
     IReadOnlyList<(string Vendor, string? Category, decimal Amount, DateTime SpentAtUtc, string? Notes, string? ReceiptUrl)> expenses)
 {
@@ -922,6 +977,7 @@ static Job BuildJob(
 
     var job = new Job
     {
+        OrganizationId = organizationId,
         LeadId = lead.Id,
         Lead = lead,
         EstimateId = estimate.Id,
@@ -978,6 +1034,7 @@ static Job BuildJob(
     job.Expenses = expenses
         .Select(item => new JobExpense
         {
+            OrganizationId = organizationId,
             JobId = job.Id,
             Vendor = item.Vendor,
             Category = item.Category,
@@ -998,6 +1055,7 @@ static Invoice BuildInvoice(
     string notes,
     DateTime createdAtUtc,
     InvoiceStatus status,
+    Guid organizationId,
     IReadOnlyList<(string Description, decimal Quantity, decimal UnitPrice)> items,
     decimal? taxRate,
     DateTime? issuedAtUtc = null,
@@ -1007,6 +1065,7 @@ static Invoice BuildInvoice(
 {
     var invoice = new Invoice
     {
+        OrganizationId = organizationId,
         JobId = job.Id,
         Job = job,
         Notes = notes,

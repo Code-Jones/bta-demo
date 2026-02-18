@@ -30,7 +30,19 @@ public class AuthController : ControllerBase
             var user = await _authService.RegisterAsync(request);
             var token = GenerateToken(user, accessToken: true);
             var refreshToken = GenerateToken(user, accessToken: false);
-            return Created("/auth/me", new { userId = user.Id, email = user.Email, firstName = user.FirstName, lastName = user.LastName, company = user.Company, token, refreshToken });
+            return Created("/auth/me", new
+            {
+                userId = user.Id,
+                email = user.Email,
+                firstName = user.FirstName,
+                lastName = user.LastName,
+                organizationId = user.OrganizationId,
+                organizationName = user.OrganizationName,
+                company = user.Company,
+                isCompanyAdmin = user.IsCompanyAdmin,
+                token,
+                refreshToken
+            });
         }
         catch (InvalidOperationException ex)
         {
@@ -97,7 +109,10 @@ public class AuthController : ControllerBase
                 Email = principal.FindFirstValue(System.Security.Claims.ClaimTypes.Name) ?? "",
                 FirstName = principal.FindFirstValue("firstName") ?? "",
                 LastName = principal.FindFirstValue("lastName") ?? "",
+                OrganizationId = Guid.TryParse(principal.FindFirstValue("orgId"), out var orgId) ? orgId : Guid.Empty,
+                OrganizationName = principal.FindFirstValue("orgName") ?? "",
                 Company = principal.FindFirstValue("company") ?? "",
+                IsCompanyAdmin = string.Equals(principal.FindFirstValue("isCompanyAdmin"), "true", StringComparison.OrdinalIgnoreCase),
             };
             var newToken = GenerateToken(user, accessToken: true);
             return Ok(new { token = newToken });
@@ -116,8 +131,11 @@ public class AuthController : ControllerBase
         var email = User.FindFirstValue(ClaimTypes.Name);
         var firstName = User.FindFirstValue("firstName");
         var lastName = User.FindFirstValue("lastName");
+        var organizationId = User.FindFirstValue("orgId");
+        var organizationName = User.FindFirstValue("orgName");
         var company = User.FindFirstValue("company");
-        return Ok(new { userId, email, firstName, lastName, company });
+        var isCompanyAdmin = User.FindFirstValue("isCompanyAdmin");
+        return Ok(new { userId, email, firstName, lastName, organizationId, organizationName, company, isCompanyAdmin });
     }
 
     private string GenerateToken(UserResponse user, bool accessToken)
@@ -132,7 +150,10 @@ public class AuthController : ControllerBase
             new(ClaimTypes.Name, user.Email ?? ""),
             new("firstName", user.FirstName ?? ""),
             new("lastName", user.LastName ?? ""),
+            new("orgId", user.OrganizationId.ToString()),
+            new("orgName", user.OrganizationName ?? ""),
             new("company", user.Company ?? ""),
+            new("isCompanyAdmin", user.IsCompanyAdmin ? "true" : "false"),
             new("token_type", accessToken ? "access" : "refresh")
         };
 

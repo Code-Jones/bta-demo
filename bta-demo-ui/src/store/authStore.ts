@@ -5,6 +5,9 @@ type User = {
   firstName?: string | null
   lastName?: string | null
   company?: string | null
+  organizationId?: string | null
+  organizationName?: string | null
+  isCompanyAdmin?: boolean | null
 }
 
 const TOKEN_KEY = 'token'

@@ -6,6 +6,7 @@ namespace BtaDemo.Api.Domain.Entities;
 public class Estimate
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrganizationId { get; set; }
     public Guid LeadId { get; set; }
     public Lead? Lead { get; set; }
     public string? Description { get; set; }

@@ -3,7 +3,8 @@
 # ---------------------------------------------------------------------------
 # Build results
 [Bb]in/
-bin\Debug/
+bin\Debug\*
+bin\Debug
 [Oo]bj/
 [Oo]ut/
 [Dd]ebug/

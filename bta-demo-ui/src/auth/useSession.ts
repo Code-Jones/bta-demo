@@ -3,6 +3,7 @@ import { apiFetch } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { queryKeys } from '../api/queryKeys'
 import { type MeResponse } from '../api/types'
+import { mapMeToAuthUser } from './sessionUtils'
 
 export function useSession() {
   const token = useAuthStore((state) => state.token)
@@ -17,12 +18,7 @@ export function useSession() {
       if (!res?.userId) {
         throw new Error('Unauthorized')
       }
-      setUser({
-        userId: res.userId,
-        firstName: res.firstName ?? null,
-        lastName: res.lastName ?? null,
-        company: res.company ?? null,
-      })
+      setUser(mapMeToAuthUser(res))
       return true
     },
   })

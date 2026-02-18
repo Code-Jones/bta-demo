@@ -3,11 +3,12 @@ import { useState } from 'react'
 import { register } from '../../api/auth'
 import { useAuthStore } from '../../store/authStore'
 import type { ApiError } from '../../api/client'
+import { normalizeIsCompanyAdmin } from '../../auth/sessionUtils'
 
 export function RegisterPage() {
   const { setToken, setTokens, setUser } = useAuthStore()
   const navigate = useNavigate()
-  
+
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -70,7 +71,7 @@ export function RegisterPage() {
     setCompanyError(cn)
     setTermsAcceptedError(termsAccepted ? null : 'Terms of Service and Privacy Policy must be accepted')
     setGeneralError(null)
-    return fn == null && ln == null && e == null && p == null && cp == null && termsAccepted
+    return fn == null && ln == null && e == null && p == null && cp == null && cn == null && termsAccepted
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -81,7 +82,21 @@ export function RegisterPage() {
     setGeneralError(null)
     try {
       const res = await register({ firstName, lastName, email, password, company })
-      const data = res as { userId: string; email: string; firstName: string; lastName: string; company: string; token?: string; accessToken?: string; access_token?: string; refreshToken?: string; refresh_token?: string }
+      const data = res as {
+        userId: string
+        email: string
+        firstName: string
+        lastName: string
+        company: string
+        organizationId?: string
+        organizationName?: string
+        isCompanyAdmin?: boolean
+        token?: string
+        accessToken?: string
+        access_token?: string
+        refreshToken?: string
+        refresh_token?: string
+      }
       const accessToken = data?.token ?? data?.accessToken ?? data?.access_token
       const refreshToken = data?.refreshToken ?? data?.refresh_token
       if (data?.userId && accessToken) {
@@ -95,6 +110,9 @@ export function RegisterPage() {
           firstName: data.firstName,
           lastName: data.lastName,
           company: data.company,
+          organizationId: data.organizationId,
+          organizationName: data.organizationName,
+          isCompanyAdmin: normalizeIsCompanyAdmin(data.isCompanyAdmin),
         })
         navigate({ to: '/app/dashboard' })
       } else {
@@ -128,57 +146,57 @@ export function RegisterPage() {
               <label>
                 First name
                 <input
-                  className="input validator bg-background-light text-background-dark mt-2 w-full"
+                  className="input bg-background-light text-background-dark mt-2 w-full"
                   type="text"
                   placeholder="Alex"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   required
                 />
-                <div className="validator-hint">{firstNameError}</div>
+                {firstNameError && <div className="text-red-500">{firstNameError}</div>}
               </label>
               <label>
                 Last name
                 <input
-                  className="input validator bg-background-light text-background-dark mt-2 w-full"
+                  className="input bg-background-light text-background-dark mt-2 w-full"
                   type="text"
                   placeholder="Henderson"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   required
                 />
-                <div className="validator-hint">{lastNameError}</div>
+                {lastNameError && <div className="text-red-500">{lastNameError}</div>}
               </label>
             </div>
             <label>
               Work email
               <input
-                className="input validator bg-background-light text-background-dark mt-2 w-full"
+                className="input bg-background-light text-background-dark mt-2 w-full"
                 type="email"
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
-              <div className="validator-hint">{emailError}</div>
+              {emailError && <div className="text-red-500">{emailError}</div>}
             </label>
             <label>
               Company name
               <input
-                className="input validator bg-background-light text-background-dark mt-2 w-full"
+                className="input bg-background-light text-background-dark mt-2 w-full"
                 type="text"
                 placeholder="Horizon Construction"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 required
               />
-              <div className="validator-hint">{companyError}</div>
+              {companyError && <div className="text-red-500">{companyError}</div>}
             </label>
             <div className="grid sm:grid-cols-2 gap-4">
               <label>
                 Password
                 <input
-                  className="input validator bg-background-light text-background-dark mt-2 w-full"
+                  className="input bg-background-light text-background-dark mt-2 w-full"
                   type="password"
                   placeholder="••••••••"
                   value={password}
@@ -190,22 +208,22 @@ export function RegisterPage() {
               <label>
                 Confirm password
                 <input
-                  className="input validator bg-background-light text-background-dark mt-2 w-full"
+                  className="input bg-background-light text-background-dark mt-2 w-full"
                   type="password"
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                 />
-                <div className="validator-hint">{confirmPasswordError}</div>
+                {confirmPasswordError && <div className="text-red-500">{confirmPasswordError}</div>}
               </label>
             </div>
-            <div className="validator-hint">{generalError}</div>
+            {generalError && <div className="text-red-500">{generalError}</div>}
             <label className="flex items-center gap-2 text-xs">
               <input className="checkbox checkbox-sm border-primary text-primary" type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} required />
               I agree to the Terms of Service and Privacy Policy.
             </label>
-            <div className="validator-hint">{termsAcceptedError}</div>
+            {termsAcceptedError && <div className="text-red-500">{termsAcceptedError}</div>}
             <button className="btn w-full bg-primary text-white hover:bg-primary/90" type="submit" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>

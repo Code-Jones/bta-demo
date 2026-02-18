@@ -15,6 +15,7 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppPipelineRouteImport } from './routes/app.pipeline'
+import { Route as AppOrganizationUsersRouteImport } from './routes/app.organization-users'
 import { Route as AppLeadsRouteImport } from './routes/app.leads'
 import { Route as AppJobsRouteImport } from './routes/app.jobs'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
@@ -50,6 +51,11 @@ const AppPipelineRoute = AppPipelineRouteImport.update({
   path: '/pipeline',
   getParentRoute: () => AppRoute,
 } as any)
+const AppOrganizationUsersRoute = AppOrganizationUsersRouteImport.update({
+  id: '/organization-users',
+  path: '/organization-users',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLeadsRoute = AppLeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/jobs': typeof AppJobsRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/organization-users': typeof AppOrganizationUsersRoute
   '/app/pipeline': typeof AppPipelineRoute
 }
 export interface FileRoutesByTo {
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/jobs': typeof AppJobsRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/organization-users': typeof AppOrganizationUsersRoute
   '/app/pipeline': typeof AppPipelineRoute
 }
 export interface FileRoutesById {
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/jobs': typeof AppJobsRoute
   '/app/leads': typeof AppLeadsRoute
+  '/app/organization-users': typeof AppOrganizationUsersRoute
   '/app/pipeline': typeof AppPipelineRoute
 }
 export interface FileRouteTypes {
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/jobs'
     | '/app/leads'
+    | '/app/organization-users'
     | '/app/pipeline'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/jobs'
     | '/app/leads'
+    | '/app/organization-users'
     | '/app/pipeline'
   id:
     | '__root__'
@@ -144,6 +155,7 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/jobs'
     | '/app/leads'
+    | '/app/organization-users'
     | '/app/pipeline'
   fileRoutesById: FileRoutesById
 }
@@ -199,6 +211,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPipelineRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/organization-users': {
+      id: '/app/organization-users'
+      path: '/organization-users'
+      fullPath: '/app/organization-users'
+      preLoaderRoute: typeof AppOrganizationUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/leads': {
       id: '/app/leads'
       path: '/leads'
@@ -235,6 +254,7 @@ interface AppRouteChildren {
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppJobsRoute: typeof AppJobsRoute
   AppLeadsRoute: typeof AppLeadsRoute
+  AppOrganizationUsersRoute: typeof AppOrganizationUsersRoute
   AppPipelineRoute: typeof AppPipelineRoute
 }
 
@@ -243,6 +263,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInvoicesRoute: AppInvoicesRoute,
   AppJobsRoute: AppJobsRoute,
   AppLeadsRoute: AppLeadsRoute,
+  AppOrganizationUsersRoute: AppOrganizationUsersRoute,
   AppPipelineRoute: AppPipelineRoute,
 }
 

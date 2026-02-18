@@ -10,11 +10,20 @@ namespace BtaDemo.Api.Application.Services;
 public class CompanyService
 {
     private readonly AppDbContext _dbContext;
-    public CompanyService(AppDbContext dbContext) => _dbContext = dbContext;
+    private readonly ICurrentUser _currentUser;
+    public CompanyService(AppDbContext dbContext, ICurrentUser currentUser)
+    {
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
 
     public async Task<IReadOnlyList<CompanyResponse>> GetAllAsync(bool includeDeleted, CancellationToken cancellationToken = default)
     {
-        var companiesQuery = _dbContext.Companies.AsNoTracking().AsQueryable();
+        var organizationId = GetOrganizationId();
+        var companiesQuery = _dbContext.Companies
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId)
+            .AsQueryable();
         if (!includeDeleted)
         {
             companiesQuery = companiesQuery.Where(x => !x.IsDeleted);
@@ -46,10 +55,11 @@ public class CompanyService
 
     public async Task<CompanyDetailResponse> GetByIdAsync(Guid companyId, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var company = await _dbContext.Companies
             .AsNoTracking()
             .Include(x => x.TaxLines)
-            .Where(x => x.Id == companyId)
+            .Where(x => x.Id == companyId && x.OrganizationId == organizationId)
             .Select(x => new CompanyDetailResponse(
                 x.Id,
                 x.Name,
@@ -76,12 +86,13 @@ public class CompanyService
 
     public async Task<Company> CreateAsync(CreateCompanyRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new ValidationException("Company name is required");
 
         var trimmedName = request.Name.Trim();
         var existing = await _dbContext.Companies.FirstOrDefaultAsync(
-            x => EF.Functions.ILike(x.Name, trimmedName),
+            x => x.OrganizationId == organizationId && EF.Functions.ILike(x.Name, trimmedName),
             cancellationToken);
 
         if (existing is not null)
@@ -100,6 +111,7 @@ public class CompanyService
         var company = new Company
         {
             Name = trimmedName,
+            OrganizationId = organizationId,
             Phone = request.Phone?.Trim(),
             Email = request.Email?.Trim(),
             Website = request.Website?.Trim(),
@@ -125,9 +137,10 @@ public class CompanyService
 
     public async Task<Company> UpdateAsync(Guid companyId, UpdateCompanyRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var company = await _dbContext.Companies
             .Include(x => x.TaxLines)
-            .FirstOrDefaultAsync(x => x.Id == companyId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == companyId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Company not found");
 
         if (company.IsDeleted)
@@ -164,7 +177,10 @@ public class CompanyService
 
     public async Task<Company> DeleteAsync(Guid companyId, CancellationToken cancellationToken = default)
     {
-        var company = await _dbContext.Companies.FirstOrDefaultAsync(x => x.Id == companyId, cancellationToken)
+        var organizationId = GetOrganizationId();
+        var company = await _dbContext.Companies.FirstOrDefaultAsync(
+            x => x.Id == companyId && x.OrganizationId == organizationId,
+            cancellationToken)
             ?? throw new NotFoundException("Company not found");
 
         if (company.IsDeleted)
@@ -176,6 +192,17 @@ public class CompanyService
         company.UpdatedAtUtc = utcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
         return company;
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 
 }

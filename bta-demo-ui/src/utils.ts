@@ -1,4 +1,4 @@
-import { EstimateStatus, JobStatus, LeadStatus, InvoiceStatus, } from "./api"
+import { EstimateStatus, JobStatus, LeadStatus, InvoiceStatus } from "./api"
 
 export function formatCurrency(value: number, options?: Intl.NumberFormatOptions) {
     return new Intl.NumberFormat('en-US', {
@@ -45,6 +45,18 @@ export function escapeHtml(value: string) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;')
+}
+
+export function getInitials(value: string, fallback = 'CO') {
+    const initials = value
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join('')
+        .toUpperCase()
+
+    return initials || fallback
 }
 
 export function exportReport(html: string) {

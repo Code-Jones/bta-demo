@@ -1,6 +1,7 @@
+import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { getAuthMe } from '../api/auth'
 import { useAuthStore } from '../store/authStore'
-import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
+import { mapMeToAuthUser } from '../auth/sessionUtils'
 
 export const Route = createFileRoute('/app')({
     beforeLoad: async () => {
@@ -15,12 +16,7 @@ export const Route = createFileRoute('/app')({
             if (!res?.userId) {
                 throw redirect({ to: '/login' })
             }
-            setUser({
-                userId: res.userId,
-                firstName: res.firstName ?? undefined,
-                lastName: res.lastName ?? undefined,
-                company: res.company ?? undefined,
-            })
+            setUser(mapMeToAuthUser(res))
         } catch {
             throw redirect({ to: '/login' })
         }

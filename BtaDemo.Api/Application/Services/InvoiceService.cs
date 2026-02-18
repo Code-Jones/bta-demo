@@ -16,20 +16,26 @@ public class InvoiceService
     private readonly AppDbContext _dbContext;
     private readonly InvoiceStateMachine _stateMachine;
     private readonly IStateTransitionEventEmitter _eventEmitter;
+    private readonly ICurrentUser _currentUser;
 
     public InvoiceService(
         AppDbContext dbContext,
         InvoiceStateMachine stateMachine,
-        IStateTransitionEventEmitter eventEmitter)
+        IStateTransitionEventEmitter eventEmitter,
+        ICurrentUser currentUser)
     {
         _dbContext = dbContext;
         _stateMachine = stateMachine;
         _eventEmitter = eventEmitter;
+        _currentUser = currentUser;
     }
 
     public async Task<Invoice> MarkPaidAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken) ?? throw new NotFoundException("Invoice not found");
+        var organizationId = GetOrganizationId();
+        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(
+            x => x.Id == invoiceId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Invoice not found");
 
         var utcNow = DateTime.UtcNow;
         var transition = _stateMachine.Transition(invoice, InvoiceStatus.Paid, utcNow);
@@ -46,7 +52,10 @@ public class InvoiceService
 
     public async Task<Invoice> IssueAsync(Guid invoiceId, IssueInvoiceRequest request, CancellationToken cancellationToken = default)
     {
-        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken) ?? throw new NotFoundException("Invoice not found");
+        var organizationId = GetOrganizationId();
+        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(
+            x => x.Id == invoiceId && x.OrganizationId == organizationId,
+            cancellationToken) ?? throw new NotFoundException("Invoice not found");
 
         if (request.DueAtUtc is not null)
         {
@@ -68,12 +77,14 @@ public class InvoiceService
 
     public async Task<IReadOnlyList<InvoiceListResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var invoices = await _dbContext.Invoices
             .AsNoTracking()
             .Include(x => x.LineItems)
             .Include(x => x.Job)
                 .ThenInclude(x => x.Lead)
                 .ThenInclude(x => x.CompanyEntity)
+            .Where(x => x.OrganizationId == organizationId)
             .OrderByDescending(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -82,15 +93,19 @@ public class InvoiceService
 
     public async Task<Invoice> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         if (request.LineItems is null || request.LineItems.Count == 0)
             throw new ValidationException("At least one line item is required");
 
-        var job = await _dbContext.Jobs.FirstOrDefaultAsync(x => x.Id == request.JobId, cancellationToken)
+        var job = await _dbContext.Jobs.FirstOrDefaultAsync(
+            x => x.Id == request.JobId && x.OrganizationId == organizationId,
+            cancellationToken)
             ?? throw new NotFoundException("Job not found");
 
         var utcNow = DateTime.UtcNow;
         var invoice = new Invoice
         {
+            OrganizationId = organizationId,
             JobId = job.Id,
             DueAtUtc = request.DueAtUtc,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
@@ -111,10 +126,11 @@ public class InvoiceService
 
     public async Task<Invoice> UpdateAsync(Guid invoiceId, UpdateInvoiceRequest request, CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var invoice = await _dbContext.Invoices
-            .FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.OrganizationId == organizationId, cancellationToken)
             ?? throw new NotFoundException("Invoice not found");
 
         if (invoice.Status != InvoiceStatus.Draft)
@@ -154,7 +170,10 @@ public class InvoiceService
 
     public async Task<Invoice> DeleteAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken)
+        var organizationId = GetOrganizationId();
+        var invoice = await _dbContext.Invoices.FirstOrDefaultAsync(
+            x => x.Id == invoiceId && x.OrganizationId == organizationId,
+            cancellationToken)
             ?? throw new NotFoundException("Invoice not found");
 
         if (invoice.Status == InvoiceStatus.Paid)
@@ -167,16 +186,19 @@ public class InvoiceService
 
     public async Task<InvoiceMetricsResponse> GetMetricsAsync(CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
         var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var lastMonthStart = monthStart.AddMonths(-1);
         var lastMonthEnd = monthStart.AddTicks(-1);
 
         var outstandingTotal = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.Status == InvoiceStatus.Issued || x.Status == InvoiceStatus.Overdue)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
         var outstandingTotalLastMonth = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => (x.Status == InvoiceStatus.Issued || x.Status == InvoiceStatus.Overdue)
                 && x.IssuedAtUtc != null
                 && x.IssuedAtUtc >= lastMonthStart
@@ -184,36 +206,43 @@ public class InvoiceService
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
         var outstandingOverdueCount = await _dbContext.Invoices.CountAsync(
-            x => x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow),
+            x => x.OrganizationId == organizationId
+                 && (x.Status == InvoiceStatus.Overdue || (x.Status == InvoiceStatus.Issued && x.DueAtUtc != null && x.DueAtUtc < utcNow)),
             cancellationToken);
 
         var paidThisMonthTotal = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.PaidAtUtc != null && x.PaidAtUtc >= monthStart)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
         var paidLastMonthTotal = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.PaidAtUtc != null && x.PaidAtUtc >= lastMonthStart && x.PaidAtUtc <= lastMonthEnd)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
         var draftTotal = await _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Draft)
+            .Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
         var draftTotalLastMonth = await _dbContext.Invoices
-            .Where(x => x.Status == InvoiceStatus.Draft && x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd)
+            .Where(x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft && x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0;
 
-        var draftCount = await _dbContext.Invoices.CountAsync(x => x.Status == InvoiceStatus.Draft, cancellationToken);
+        var draftCount = await _dbContext.Invoices.CountAsync(
+            x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft,
+            cancellationToken);
         var draftCountLastMonth = await _dbContext.Invoices.CountAsync(
-            x => x.Status == InvoiceStatus.Draft && x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd,
+            x => x.OrganizationId == organizationId && x.Status == InvoiceStatus.Draft && x.CreatedAtUtc >= lastMonthStart && x.CreatedAtUtc <= lastMonthEnd,
             cancellationToken);
 
         var paidThisMonth = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.PaidAtUtc != null && x.PaidAtUtc >= monthStart && x.IssuedAtUtc != null)
             .Select(x => new { x.IssuedAtUtc, x.PaidAtUtc })
             .ToListAsync(cancellationToken);
 
         var paidLastMonth = await _dbContext.Invoices
+            .Where(x => x.OrganizationId == organizationId)
             .Where(x => x.PaidAtUtc != null && x.PaidAtUtc >= lastMonthStart && x.PaidAtUtc <= lastMonthEnd && x.IssuedAtUtc != null)
             .Select(x => new { x.IssuedAtUtc, x.PaidAtUtc })
             .ToListAsync(cancellationToken);
@@ -306,6 +335,17 @@ public class InvoiceService
             invoice.Notes,
             lineItemResponses
         );
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 
 }

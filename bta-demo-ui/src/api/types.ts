@@ -587,6 +587,9 @@ export type MeResponse = {
   firstName?: string
   lastName?: string
   company?: string
+  organizationId?: string
+  organizationName?: string
+  isCompanyAdmin?: boolean
 }
 
 export type LoginResponse = {
@@ -616,11 +619,30 @@ export type RegisterResponse = {
   firstName: string
   lastName: string
   company: string
+  organizationId?: string
+  organizationName?: string
+  isCompanyAdmin?: boolean
   token?: string
   accessToken?: string
   access_token?: string
   refreshToken?: string
   refresh_token?: string
+}
+
+export type OrganizationUserResponse = {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  isCompanyAdmin: boolean
+}
+
+export type CreateOrganizationUserRequest = {
+  email: string
+  password: string
+  firstName: string
+  lastName: string
+  isCompanyAdmin: boolean
 }
 
 export type RefreshRequest = {

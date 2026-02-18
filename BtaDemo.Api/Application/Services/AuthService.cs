@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 using BtaDemo.Api.Application.Dtos;
 using BtaDemo.Api.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using BtaDemo.Api.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace BtaDemo.Api.Application.Services;
 
@@ -9,12 +11,16 @@ public class AuthService
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
-    private readonly IConfiguration _configuration;
+    private readonly AppDbContext _dbContext;
 
-    public AuthService(UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager, IConfiguration configuration) {
+    public AuthService(
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
+        AppDbContext dbContext)
+    {
         _userManager = userManager;
         _signInManager = signInManager;
-        _configuration = configuration;
+        _dbContext = dbContext;
     }
 
     public async Task<UserResponse> RegisterAsync(RegisterRequest request)
@@ -25,14 +31,58 @@ public class AuthService
             throw new InvalidOperationException(string.Join(", ", errors));
         }
 
-        var user = new ApplicationUser { UserName = request.Email, Email = request.Email, FirstName = request.FirstName, LastName = request.LastName, Company = request.Company };
-        var result = await _userManager.CreateAsync(user, request.Password);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException("Failed to register user");
-        }
+        var utcNow = DateTime.UtcNow;
+        var email = request.Email.Trim();
+        var organizationName = request.Company.Trim();
 
-        return new UserResponse { Id = user.Id, Email = user.Email, FirstName = user.FirstName, LastName = user.LastName, Company = user.Company };
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+        try
+        {
+            var organization = new Organization
+            {
+                Name = organizationName,
+                CreatedAtUtc = utcNow,
+                UpdatedAtUtc = utcNow,
+            };
+
+            _dbContext.Organizations.Add(organization);
+            await _dbContext.SaveChangesAsync();
+
+            var user = new ApplicationUser
+            {
+                UserName = $"{organization.Id}:{email}",
+                Email = email,
+                FirstName = request.FirstName,
+                LastName = request.LastName,
+                OrganizationId = organization.Id,
+                IsCompanyAdmin = true
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException("Failed to register user");
+            }
+
+            await transaction.CommitAsync();
+
+            return new UserResponse
+            {
+                Id = user.Id,
+                Email = user.Email,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                OrganizationId = organization.Id,
+                OrganizationName = organization.Name,
+                Company = organization.Name,
+                IsCompanyAdmin = user.IsCompanyAdmin
+            };
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     public async Task<UserResponse> LoginAsync(LoginRequest request)
@@ -43,19 +93,66 @@ public class AuthService
             throw new InvalidOperationException(string.Join(", ", errors));
         }
 
-        var user = await _userManager.FindByEmailAsync(request.Email);
+        var email = request.Email.Trim();
+        var usersQuery = _userManager.Users
+            .Include(x => x.Organization)
+            .Where(x => x.Email == email);
+
+        if (request.OrganizationId is not null)
+        {
+            usersQuery = usersQuery.Where(x => x.OrganizationId == request.OrganizationId);
+        }
+
+        if (request.OrganizationId is null)
+        {
+            var candidates = await usersQuery.Take(2).ToListAsync();
+            if (candidates.Count > 1)
+            {
+                throw new InvalidOperationException("Multiple organizations found for this email");
+            }
+
+            var userFromEmail = candidates.FirstOrDefault();
+            if (userFromEmail == null || userFromEmail.Email == null)
+            {
+                throw new InvalidOperationException("Invalid credentials");
+            }
+
+            return await CompleteLoginAsync(userFromEmail, request.Password);
+        }
+
+        var user = await usersQuery.FirstOrDefaultAsync();
         if (user == null || user.Email == null)
         {
             throw new InvalidOperationException("Invalid credentials");
         }
-        
-        var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, false);
+
+        return await CompleteLoginAsync(user, request.Password);
+    }
+
+    private async Task<UserResponse> CompleteLoginAsync(ApplicationUser user, string password)
+    {
+        if (user.OrganizationId == Guid.Empty || user.Organization is null)
+        {
+            throw new InvalidOperationException("User is not assigned to an organization");
+        }
+
+        var result = await _signInManager.CheckPasswordSignInAsync(user, password, false);
         if (!result.Succeeded)
         {
             throw new InvalidOperationException("Invalid credentials");
         }
 
-        return new UserResponse { Id = user.Id, Email = user.Email, FirstName = user.FirstName, LastName = user.LastName, Company = user.Company };
+        return new UserResponse
+        {
+            Id = user.Id,
+            Email = user.Email,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            OrganizationId = user.OrganizationId,
+            OrganizationName = user.Organization.Name,
+            Company = user.Organization.Name,
+            IsCompanyAdmin = user.IsCompanyAdmin
+        };
     }
 
     private async Task<List<string>> ValidateLoginRequestAsync(LoginRequest request)

@@ -9,6 +9,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<Estimate> Estimates => Set<Estimate>();
     public DbSet<EstimateLineItem> EstimateLineItems => Set<EstimateLineItem>();
@@ -27,13 +28,27 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             e.Property(x => x.FirstName).HasMaxLength(100).IsRequired();
             e.Property(x => x.LastName).HasMaxLength(100).IsRequired();
-            e.Property(x => x.Company).HasMaxLength(100).IsRequired();
+            e.Property(x => x.OrganizationId).IsRequired();
+            e.Property(x => x.IsCompanyAdmin).IsRequired();
+            e.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Organization>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.CreatedAtUtc).IsRequired();
+            e.Property(x => x.UpdatedAtUtc).IsRequired();
         });
 
         modelBuilder.Entity<Lead>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Company).HasMaxLength(200);
             e.Property(x => x.Phone).HasMaxLength(50);
             e.Property(x => x.Email).HasMaxLength(200);
@@ -57,12 +72,18 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .WithMany()
                 .HasForeignKey(x => x.CompanyId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Company>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Phone).HasMaxLength(50);
             e.Property(x => x.Email).HasMaxLength(200);
             e.Property(x => x.Website).HasMaxLength(200);
@@ -77,11 +98,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.DeletedAtUtc);
             e.Property(x => x.CreatedAtUtc).IsRequired();
             e.Property(x => x.UpdatedAtUtc).IsRequired();
+            e.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Estimate>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Amount).HasPrecision(12, 2).IsRequired();
             e.Property(x => x.Status).IsRequired();
             e.Property(x => x.CreatedAtUtc).IsRequired();
@@ -91,9 +117,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.RejectedAtUtc);
 
             e.HasOne(x => x.Lead)
-            .WithMany()
-            .HasForeignKey(x => x.LeadId)
-            .OnDelete(DeleteBehavior.Cascade);
+                .WithMany()
+                .HasForeignKey(x => x.LeadId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<EstimateLineItem>(e =>
@@ -114,6 +144,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<Job>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Status).IsRequired();
             e.Property(x => x.StartAtUtc).IsRequired();
             e.Property(x => x.EstimatedEndAtUtc).IsRequired();
@@ -123,13 +154,17 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.CompletedAtUtc);
             e.Property(x => x.CancelledAtUtc);
             e.HasOne(x => x.Lead)
-            .WithMany()
-            .HasForeignKey(x => x.LeadId)
-            .OnDelete(DeleteBehavior.Restrict);
+                .WithMany()
+                .HasForeignKey(x => x.LeadId)
+                .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Estimate)
-            .WithMany()
-            .HasForeignKey(x => x.EstimateId)
-            .OnDelete(DeleteBehavior.SetNull);
+                .WithMany()
+                .HasForeignKey(x => x.EstimateId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<JobMilestone>(e =>
@@ -151,6 +186,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<JobExpense>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Vendor).HasMaxLength(200).IsRequired();
             e.Property(x => x.Category).HasMaxLength(120);
             e.Property(x => x.Amount).HasPrecision(12, 2).IsRequired();
@@ -163,11 +199,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .WithMany(x => x.Expenses)
                 .HasForeignKey(x => x.JobId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Invoice>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.OrganizationId).IsRequired();
             e.Property(x => x.Amount).HasPrecision(12, 2).IsRequired();
             e.Property(x => x.Status).IsRequired();
             e.Property(x => x.Notes).HasMaxLength(2000);
@@ -179,9 +220,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             e.Property(x => x.OverdueAtUtc);
 
             e.HasOne(x => x.Job)
-            .WithMany()
-            .HasForeignKey(x => x.JobId)
-            .OnDelete(DeleteBehavior.Cascade);
+                .WithMany()
+                .HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Organization>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<InvoiceLineItem>(e =>

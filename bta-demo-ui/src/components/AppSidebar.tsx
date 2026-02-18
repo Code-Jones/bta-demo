@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useAuthStore } from '../store/authStore'
 import { useSession } from '../auth/useSession'
+import { logout } from '../api/auth'
+import { getInitials } from '../utils'
 
 type SidebarUser = {
   name: string
@@ -20,13 +22,12 @@ type AppSidebarProps = {
   collapsible?: boolean
 }
 
-const defaultAppSidebarItems = [
+const baseSidebarItems = [
   { label: 'Scoreboard', to: '/app/dashboard', icon: 'leaderboard' },
   { label: 'CRM', to: '/app/leads', icon: 'group' },
   { label: 'Pipeline', to: '/app/pipeline', icon: 'assignment' },
   { label: 'Schedule', to: '/app/jobs', icon: 'calendar_today' },
   { label: 'Financials', to: '/app/invoices', icon: 'account_balance_wallet' },
-  // { label: 'Automation Log', to: '/app/automation-log', icon: 'settings' },
 ]
 
 
@@ -35,8 +36,10 @@ export function AppSidebar({
   defaultCollapsed = false,
   collapsible = true,
 }: AppSidebarProps) {
+  const navigate = useNavigate()
   useSession()
   const storedUser = useAuthStore((state) => state.user)
+  const clearAuth = useAuthStore((state) => state.clear)
   const storageKey = 'bta.sidebar.collapsed'
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window === 'undefined') {
@@ -57,14 +60,7 @@ export function AppSidebar({
   const sidebarUser = useMemo<SidebarUserDisplay>(() => {
     const nameSource = user?.name
     if (nameSource) {
-      const initials = nameSource
-        .split(' ')
-        .map((part) => part[0])
-        .filter(Boolean)
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-      return { ...user, initials: initials || 'CO' }
+      return { ...user, initials: getInitials(nameSource, 'CO') }
     }
 
     const firstName = storedUser?.firstName?.trim()
@@ -74,22 +70,32 @@ export function AppSidebar({
       .join(' ')
     const name = displayName || 'Account Owner'
     const role = storedUser?.company?.trim() || 'Contractor Ops'
-    const initialsSource = displayName || name
-    const initials = initialsSource
-      .split(' ')
-      .map((part) => part[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join('')
-      .toUpperCase()
-
     return {
       name,
       role,
       avatarUrl: user?.avatarUrl,
-      initials: initials || 'CO',
+      initials: getInitials(displayName || name, 'CO'),
     }
   }, [storedUser, user])
+
+  const sidebarItems = useMemo(() => {
+    const items = [...baseSidebarItems]
+    if (storedUser?.isCompanyAdmin === true) {
+      items.push({ label: 'Users', to: '/app/organization-users', icon: 'manage_accounts' })
+    }
+    return items
+  }, [storedUser?.isCompanyAdmin])
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch {
+      // ignore logout errors
+    } finally {
+      clearAuth()
+      navigate({ to: '/login' })
+    }
+  }
 
   return (
     <>
@@ -122,7 +128,7 @@ export function AppSidebar({
             ) : null}
           </div>
           <nav className="flex-1 px-4 space-y-1 mt-4">
-            {defaultAppSidebarItems.map((item) => (
+            {sidebarItems.map((item) => (
               <Link
                 key={item.label}
                 to={item.to}
@@ -167,6 +173,14 @@ export function AppSidebar({
                 </p>
               </div>
             </div>
+            <button
+              type="button"
+              className={`mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors ${isCollapsed ? 'justify-center' : ''}`}
+              onClick={handleLogout}
+            >
+              <span className="material-symbols-outlined text-sm">logout</span>
+              <span className={`${isCollapsed ? 'hidden' : ''}`}>Log out</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -182,7 +196,7 @@ export function AppSidebar({
             <span className="material-symbols-outlined text-lg">menu</span>
           </button>
           <div className="flex-1 flex flex-col items-center gap-3">
-            {defaultAppSidebarItems.map((item) => (
+            {sidebarItems.map((item) => (
               <Link
                 key={item.label}
                 to={item.to}
@@ -226,7 +240,7 @@ export function AppSidebar({
           </button>
         </div>
         <nav className="flex-1 px-4 space-y-1 mt-4">
-          {defaultAppSidebarItems.map((item) => (
+          {sidebarItems.map((item) => (
             <Link
               key={item.label}
               to={item.to}
@@ -261,6 +275,14 @@ export function AppSidebar({
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+            onClick={handleLogout}
+          >
+            <span className="material-symbols-outlined text-sm">logout</span>
+            Log out
+          </button>
         </div>
       </aside>
     </>

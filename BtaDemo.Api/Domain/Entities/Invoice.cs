@@ -6,6 +6,7 @@ namespace BtaDemo.Api.Domain.Entities;
 public class Invoice
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrganizationId { get; set; }
     public Guid JobId { get; set; }
     public Job? Job { get; set; }
     public decimal Amount { get; set; }

@@ -46,6 +46,8 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 .AddApiEndpoints();
 
 var jwt = builder.Configuration.GetSection("Jwt");
+// check out asymmetric security key for signing JWTs
+// var key = new AsymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
 var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -64,10 +66,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("CompanyAdminOnly", policy =>
+        policy.RequireClaim("isCompanyAdmin", "true"));
+});
 
+// review scope lifetimes (singleton, scoped, transient) Like go lang context
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<LeadService>();
@@ -76,6 +85,7 @@ builder.Services.AddScoped<EstimateService>();
 builder.Services.AddScoped<JobService>();
 builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddScoped<PipelineService>();
+builder.Services.AddScoped<OrganizationUserService>();
 builder.Services.AddScoped<IStateTransitionEventEmitter, LoggingStateTransitionEventEmitter>();
 builder.Services.AddSingleton<EstimateStateMachine>();
 builder.Services.AddSingleton<JobStateMachine>();
@@ -119,6 +129,7 @@ app.UseExceptionHandler(errorApp =>
             ValidationException => (StatusCodes.Status400BadRequest, "Validation error"),
             NotFoundException => (StatusCodes.Status404NotFound, "Not found"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
+            UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Forbidden"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Validation error"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected error")
         };

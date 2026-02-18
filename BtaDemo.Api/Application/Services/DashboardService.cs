@@ -8,55 +8,64 @@ namespace BtaDemo.Api.Application.Services;
 public class DashboardService
 {
     private readonly AppDbContext _dbContext;
-    public DashboardService(AppDbContext dbContext) => _dbContext = dbContext;
+    private readonly ICurrentUser _currentUser;
+    public DashboardService(AppDbContext dbContext, ICurrentUser currentUser)
+    {
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
 
     public async Task<ScoreboardResponse> GetScoreboardAsync(
         DateTime? startDateUtc,
         DateTime? endDateUtc,
         CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
         var (startDate, endDate, previousStart, previousEnd) = ResolveRange(startDateUtc, endDateUtc, utcNow);
 
         var leads = await _dbContext.Leads
-            .CountAsync(x => !x.IsDeleted && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(x => x.OrganizationId == organizationId && !x.IsDeleted && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate, cancellationToken);
         var leadsPrevious = await _dbContext.Leads
-            .CountAsync(x => !x.IsDeleted && x.CreatedAtUtc >= previousStart && x.CreatedAtUtc <= previousEnd, cancellationToken);
+            .CountAsync(x => x.OrganizationId == organizationId && !x.IsDeleted && x.CreatedAtUtc >= previousStart && x.CreatedAtUtc <= previousEnd, cancellationToken);
 
         var estimatesDraft = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Draft && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Draft && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var estimatesSent = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Sent && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Sent && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var estimatesAccepted = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Accepted && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Accepted && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var estimatesRejected = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Rejected && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Rejected && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
 
         var estimatesSentPrevious = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Sent && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Sent && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
         var estimatesAcceptedPrevious = await _dbContext.Estimates
-            .CountAsync(e => e.Status == EstimateStatus.Accepted && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == EstimateStatus.Accepted && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
 
         var jobsScheduled = await _dbContext.Jobs
-            .CountAsync(e => e.Status == JobStatus.Scheduled && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == JobStatus.Scheduled && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var jobsScheduledPrevious = await _dbContext.Jobs
-            .CountAsync(e => e.Status == JobStatus.Scheduled && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == JobStatus.Scheduled && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
 
         var invoicesPaid = await _dbContext.Invoices
-            .CountAsync(e => e.Status == InvoiceStatus.Paid && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == InvoiceStatus.Paid && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var invoicesPaidPrevious = await _dbContext.Invoices
-            .CountAsync(e => e.Status == InvoiceStatus.Paid && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status == InvoiceStatus.Paid && e.CreatedAtUtc >= previousStart && e.CreatedAtUtc <= previousEnd, cancellationToken);
         var invoicesUnpaid = await _dbContext.Invoices
-            .CountAsync(e => e.Status != InvoiceStatus.Paid && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
+            .CountAsync(e => e.OrganizationId == organizationId && e.Status != InvoiceStatus.Paid && e.CreatedAtUtc >= startDate && e.CreatedAtUtc <= endDate, cancellationToken);
         var invoicesOverdue = await _dbContext.Invoices.CountAsync(
-            e => (e.Status == InvoiceStatus.Overdue || (e.Status == InvoiceStatus.Issued && e.DueAtUtc != null && e.DueAtUtc < utcNow))
+            e => e.OrganizationId == organizationId
+                 && (e.Status == InvoiceStatus.Overdue || (e.Status == InvoiceStatus.Issued && e.DueAtUtc != null && e.DueAtUtc < utcNow))
                  && e.CreatedAtUtc >= startDate
                  && e.CreatedAtUtc <= endDate,
             cancellationToken);
         var totalRevenuePaid = await _dbContext.Invoices
+            .Where(e => e.OrganizationId == organizationId)
             .Where(e => e.Status == InvoiceStatus.Paid && e.PaidAtUtc != null && e.PaidAtUtc >= startDate && e.PaidAtUtc <= endDate)
             .SumAsync(e => (decimal?)e.Amount, cancellationToken) ?? 0;
         var totalRevenuePaidPrevious = await _dbContext.Invoices
+            .Where(e => e.OrganizationId == organizationId)
             .Where(e => e.Status == InvoiceStatus.Paid && e.PaidAtUtc != null && e.PaidAtUtc >= previousStart && e.PaidAtUtc <= previousEnd)
             .SumAsync(e => (decimal?)e.Amount, cancellationToken) ?? 0;
 
@@ -89,16 +98,18 @@ public class DashboardService
         DateTime? endDateUtc,
         CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
         var (startDate, endDate, _, _) = ResolveRange(startDateUtc, endDateUtc, utcNow);
 
         var paidInvoices = await _dbContext.Invoices
+            .Where(e => e.OrganizationId == organizationId)
             .Where(e => e.Status == InvoiceStatus.Paid && e.PaidAtUtc != null && e.PaidAtUtc >= startDate && e.PaidAtUtc <= endDate)
             .Select(e => new { e.PaidAtUtc, e.Amount })
             .ToListAsync(cancellationToken);
 
         var jobExpenses = await _dbContext.JobExpenses
-            .Where(e => e.SpentAtUtc >= startDate && e.SpentAtUtc <= endDate)
+            .Where(e => e.OrganizationId == organizationId && e.SpentAtUtc >= startDate && e.SpentAtUtc <= endDate)
             .Select(e => new { e.SpentAtUtc, e.Amount })
             .ToListAsync(cancellationToken);
 
@@ -122,6 +133,7 @@ public class DashboardService
         DateTime? endDateUtc,
         CancellationToken cancellationToken = default)
     {
+        var organizationId = GetOrganizationId();
         var utcNow = DateTime.UtcNow;
         var (startDate, endDate, _, _) = ResolveRange(startDateUtc, endDateUtc, utcNow);
 
@@ -129,7 +141,7 @@ public class DashboardService
         var chartData = await GetRevenueSeriesAsync(startDate, endDate, cancellationToken);
 
         var leads = await _dbContext.Leads
-            .Where(x => !x.IsDeleted && x.Status != LeadStatus.Lost && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate)
+            .Where(x => x.OrganizationId == organizationId && !x.IsDeleted && x.Status != LeadStatus.Lost && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate)
             .OrderByDescending(x => x.CreatedAtUtc)
             .Select(x => new DashboardLeadReportItem(
                 x.Id,
@@ -142,7 +154,7 @@ public class DashboardService
 
         var estimates = await _dbContext.Estimates
             .Include(x => x.Lead)
-            .Where(x => x.Status != EstimateStatus.Rejected && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate)
+            .Where(x => x.OrganizationId == organizationId && x.Status != EstimateStatus.Rejected && x.CreatedAtUtc >= startDate && x.CreatedAtUtc <= endDate)
             .OrderByDescending(x => x.CreatedAtUtc)
             .Select(x => new DashboardEstimateReportItem(
                 x.Id,
@@ -156,7 +168,7 @@ public class DashboardService
 
         var jobs = await _dbContext.Jobs
             .Include(x => x.Lead)
-            .Where(x => (x.Status == JobStatus.Scheduled || x.Status == JobStatus.InProgress)
+            .Where(x => x.OrganizationId == organizationId && (x.Status == JobStatus.Scheduled || x.Status == JobStatus.InProgress)
                         && x.CreatedAtUtc >= startDate
                         && x.CreatedAtUtc <= endDate)
             .OrderByDescending(x => x.StartAtUtc)
@@ -170,6 +182,17 @@ public class DashboardService
             .ToListAsync(cancellationToken);
 
         return new DashboardReportResponse(scoreboard, chartData, leads, estimates, jobs);
+    }
+
+    private Guid GetOrganizationId()
+    {
+        var organizationId = _currentUser.OrganizationId;
+        if (organizationId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException("Organization scope missing");
+        }
+
+        return organizationId;
     }
 
     private static (DateTime StartDate, DateTime EndDate, DateTime PreviousStart, DateTime PreviousEnd) ResolveRange(

@@ -7,6 +7,7 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
 {
     public AppDbContext CreateDbContext(string[] args)
     {
+        DotNetEnv.Env.Load();
         var connectionString = Environment.GetEnvironmentVariable("CONNECTIONSTRINGS__DB");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
