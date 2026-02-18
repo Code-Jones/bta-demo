@@ -50,7 +50,7 @@ public class AuthService
 
             var user = new ApplicationUser
             {
-                UserName = $"{organization.Id}:{email}",
+                UserName = $"{organization.Id:N}-{email}",
                 Email = email,
                 FirstName = request.FirstName,
                 LastName = request.LastName,
@@ -58,11 +58,14 @@ public class AuthService
                 IsCompanyAdmin = true
             };
 
-            var result = await _userManager.CreateAsync(user, request.Password);
-            if (!result.Succeeded)
-            {
-                throw new InvalidOperationException("Failed to register user");
-            }
+        var result = await _userManager.CreateAsync(user, request.Password);
+        if (!result.Succeeded)
+        {
+            var errorMessage = result.Errors.Any()
+                ? string.Join(", ", result.Errors.Select(error => error.Description))
+                : "Failed to register user";
+            throw new InvalidOperationException(errorMessage);
+        }
 
             await transaction.CommitAsync();
 
